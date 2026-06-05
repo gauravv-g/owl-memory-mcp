@@ -6,11 +6,10 @@ const crypto = require("crypto");
 const DB_PATH = path.join(__dirname, "test_neuromorphic.db");
 if (fs.existsSync(DB_PATH)) fs.unlinkSync(DB_PATH);
 
-// Mock server instance setup
 const DatabaseInit = require("better-sqlite3");
 const db = new DatabaseInit(DB_PATH);
 
-// Create essential tables
+// Create essential tables including git branch awareness schema
 db.exec(`
     CREATE TABLE IF NOT EXISTS episodic_memories (
         id TEXT PRIMARY KEY, content TEXT NOT NULL, event_type TEXT DEFAULT 'observation',
@@ -46,9 +45,17 @@ db.exec(`
         last_updated INTEGER,
         FOREIGN KEY(node_id) REFERENCES code_nodes(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS memory_git_branches (
+        memory_id TEXT,
+        branch_name TEXT,
+        commit_sha TEXT,
+        PRIMARY KEY(memory_id, branch_name),
+        FOREIGN KEY(memory_id) REFERENCES episodic_memories(id) ON DELETE CASCADE
+    );
 `);
 
-// Mock helper functions needed by the handlers
+// Mock helper functions
 function detectEmotionalSalience(t) {
   return { valence: -0.5, arousal: 0.8, salience: 0.9 };
 }
@@ -57,7 +64,8 @@ function calculateNextReview(s) {
   return new Date(Date.now() + 86400000).toISOString();
 }
 
-// ─── Re-implement Handlers locally for unit test execution ──────────────────
+// Global active branch state for tests
+let testActiveBranch = "main";
 
 function handleLearnFromError(args) {
   const errorMessage = args.error_message;
@@ -163,6 +171,13 @@ function handleLearnFromError(args) {
     VALUES (?, ?, 'caused_bug')
   `).run(memoryId, targetNodeId);
 
+  // Link to test branch
+  db.prepare("INSERT OR REPLACE INTO memory_git_branches (memory_id, branch_name, commit_sha) VALUES (?, ?, ?)").run(
+    memoryId,
+    testActiveBranch,
+    "mock_commit_sha"
+  );
+
   return {
     status: "success",
     surprise_metric: surprise,
@@ -220,7 +235,7 @@ function handleInjectActivation(args) {
     }
   }
 
-  // Retrieve spiked memories
+  // Retrieve spiked memories filtered by the active test branch
   const spikedMemories = [];
   const seenMemIds = new Set();
 
@@ -235,8 +250,10 @@ function handleInjectActivation(args) {
     const links = db.prepare(`
       SELECT mcl.link_type, em.* FROM memory_code_links mcl
       JOIN episodic_memories em ON em.id = mcl.memory_id
+      LEFT JOIN memory_git_branches mgb ON mgb.memory_id = em.id
       WHERE mcl.code_node_id = ? AND em.project = ? AND em.is_active = 1
-    `).all(node.node_id, projectId);
+        AND (mgb.branch_name IS NULL OR mgb.branch_name = ?)
+    `).all(node.node_id, projectId, testActiveBranch);
 
     for (const link of links) {
       if (!seenMemIds.has(link.id)) {
@@ -260,6 +277,17 @@ function handleInjectActivation(args) {
   };
 }
 
+function handleRecall(args) {
+  const projectId = args.project || "default";
+  const querySql = `
+    SELECT em.* FROM episodic_memories em
+    LEFT JOIN memory_git_branches mgb ON mgb.memory_id = em.id
+    WHERE em.project = ? AND em.is_active = 1
+      AND (mgb.branch_name IS NULL OR mgb.branch_name = ?)
+  `;
+  return db.prepare(querySql).all(projectId, testActiveBranch);
+}
+
 // ─── Run Tests ───────────────────────────────────────────────────────────────
 
 async function runTests() {
@@ -279,6 +307,9 @@ async function runTests() {
       console.error(`✗ FAIL: ${message}`);
     }
   }
+
+  // Set branch context
+  testActiveBranch = "main";
 
   // 1. Test Stack Trace Parsing and Node Auto-Registration
   console.log("[Test 1] Testing ASGM error learning stack trace parsing...");
@@ -326,9 +357,6 @@ async function runTests() {
   `).run(callerNodeId, errResult.registered_code_node, now);
 
   // Inject energy of 10.0 into A (caller)
-  // With decay_factor of 0.1:
-  // Node A gets +10.0 energy
-  // Node B (callee) gets +10.0 * 1.0 * (1 - 0.1) = 9.0 energy
   const actResult = handleInjectActivation({
     node_id: callerNodeId,
     energy: 10.0,
@@ -342,6 +370,44 @@ async function runTests() {
   assert(actResult.spiked_memories_found === 1, "Exactly 1 linked memory spiked above the threshold");
   assert(actResult.spiked_memories[0].node_name === "storeEmbedding", "Spiked memory returned is connected to callee function B");
   assert(actResult.spiked_memories[0].activation === 9.0, "Callee function received the correct decayed energy level (9.0)");
+
+  console.log("");
+
+  // 3. Test Git Branch Isolation
+  console.log("[Test 3] Testing Git branch memory isolation...");
+
+  // Write a global memory (null branch name)
+  const globalMemId = crypto.randomBytes(8).toString("hex");
+  db.prepare(`
+    INSERT INTO episodic_memories (id, content, event_type, created_at, updated_at, project)
+    VALUES (?, 'Global architectural guideline: avoid mutating state', 'observation', ?, ?, 'neuromorphic-test')
+  `).run(globalMemId, now, now);
+
+  // Set branch context to "feature-x" and create a branch-specific error memory
+  testActiveBranch = "feature-x";
+  const featureError = handleLearnFromError({
+    error_message: `TypeError: Cannot read property 'foo' of undefined
+      at runFeature (features/x.js:12:4)`,
+    command: "npm run dev",
+    project: "neuromorphic-test",
+    surprise_score: 0.9
+  });
+
+  // Switch context back to "main" and run recall
+  testActiveBranch = "main";
+  const mainMems = handleRecall({ project: "neuromorphic-test" });
+  
+  // Recall on main should return the global memory + the first memory (since it was created while active branch was main)
+  // But it must NOT return the feature-x specific memory!
+  assert(mainMems.length === 2, "Recall on 'main' branch returned correct 2 memories");
+  assert(!mainMems.some(m => m.id === featureError.stored_memory_id), "Recall on 'main' successfully ignored 'feature-x' memories");
+
+  // Switch context to "feature-x" and recall
+  testActiveBranch = "feature-x";
+  const featureMems = handleRecall({ project: "neuromorphic-test" });
+  assert(featureMems.length === 2, "Recall on 'feature-x' branch returned correct 2 memories");
+  assert(featureMems.some(m => m.id === featureError.stored_memory_id), "Recall on 'feature-x' successfully retrieved branch-specific error memory");
+  assert(featureMems.some(m => m.id === globalMemId), "Recall on 'feature-x' successfully retrieved global memory");
 
   console.log("\n======================================================================");
   console.log(`   TESTS COMPLETED: ${passed}/${total} assertions passed (${Math.round(passed/total * 100)}%)`);

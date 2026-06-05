@@ -49,6 +49,18 @@ const Database = require("better-sqlite3");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const { execSync } = require("child_process");
+
+function getCurrentGitInfo(dirPath = ".") {
+  try {
+    const branch = execSync("git rev-parse --abbrev-ref HEAD", { cwd: dirPath, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    const commit = execSync("git rev-parse HEAD", { cwd: dirPath, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    return { branch, commit };
+  } catch (e) {
+    return { branch: "main", commit: "none" };
+  }
+}
+
 
 // ─── Vector Embeddings ──────────────────────────────────────────────────────
 let sqliteVecLoaded = false;
@@ -942,6 +954,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       db.prepare(`INSERT INTO episodic_memories (id, content, event_type, project, source, confidence, emotional_valence, emotional_arousal, salience, strength, somatic_weight, somatic_valence, developmental_stage, created_at, updated_at, next_review, review_interval, sensory_type, mood_tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'raw', ?, ?, ?, ?, ?, ?)`)
         .run(memId, content, eventType, projectId, args.source || "conversation", confidence, emotion.valence, emotion.arousal, emotion.salience, initialStrength, emotion.salience > 0.3 ? emotion.salience * 0.5 : 0, emotion.valence * emotion.arousal, now, now, nextReview, 1.0, sensoryType, moodTag);
 
+      const gitInfo = getCurrentGitInfo();
+      db.prepare("INSERT OR REPLACE INTO memory_git_branches (memory_id, branch_name, commit_sha) VALUES (?, ?, ?)")
+        .run(memId, gitInfo.branch, gitInfo.commit);
+
       for (const [eName, eType, eScore] of entities) {
         db.prepare("INSERT OR IGNORE INTO entities (name, entity_type, first_seen, last_seen) VALUES (?, ?, ?, ?)").run(eName, eType, now, now);
         const er = db.prepare("SELECT id FROM entities WHERE name = ? AND entity_type = ?").get(eName, eType);
@@ -1004,9 +1020,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         // Phase 2: BM25 + metadata scoring
+        const gitInfo = getCurrentGitInfo();
         const candidates = new Set();
         const candidateEmbeddings = new Map(); // Store embeddings for reranking
-        for (const mem of db.prepare("SELECT * FROM episodic_memories WHERE project = ? AND is_active = 1").all(projectId)) {
+        const querySql = `
+          SELECT em.* FROM episodic_memories em
+          LEFT JOIN memory_git_branches mgb ON mgb.memory_id = em.id
+          WHERE em.project = ? AND em.is_active = 1
+            AND (mgb.branch_name IS NULL OR mgb.branch_name = ?)
+        `;
+        for (const mem of db.prepare(querySql).all(projectId, gitInfo.branch)) {
           candidates.add(mem.id);
           let bm25 = calculateSimilarity(query, mem.content) * 0.3 + mem.strength * 0.15 + mem.salience * 0.1 + Math.min(mem.access_count / 10, 1) * 0.1 + mem.confidence * 0.1;
           if (Math.abs(queryEmotion.valence - mem.emotional_valence) < 0.3) bm25 += 0.1;
@@ -1562,7 +1585,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
-      const failures = db.prepare("SELECT * FROM episodic_memories WHERE project = ? AND is_active = 1 AND (event_type = 'error' OR emotional_valence < -0.2) ORDER BY created_at DESC LIMIT 20").all(projectId);
+      const gitInfo = getCurrentGitInfo();
+      const warnSql = `
+        SELECT em.* FROM episodic_memories em
+        LEFT JOIN memory_git_branches mgb ON mgb.memory_id = em.id
+        WHERE em.project = ? AND em.is_active = 1
+          AND (em.event_type = 'error' OR em.emotional_valence < -0.2)
+          AND (mgb.branch_name IS NULL OR mgb.branch_name = ?)
+        ORDER BY em.created_at DESC LIMIT 20
+      `;
+      const failures = db.prepare(warnSql).all(projectId, gitInfo.branch);
       
       const relevant = [];
       for (const f of failures) {
@@ -2049,12 +2081,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       const resonantMemories = [];
       const seenMemIds = new Set();
+      const gitInfo = getCurrentGitInfo();
 
       for (const [currNodeId, depth] of nodeDistances.entries()) {
         const weight = depth === 0 ? 1.0 : (depth === 1 ? 1.0 : 0.5);
-        const links = db.prepare(`SELECT mcl.link_type, em.* FROM memory_code_links mcl
-                                  JOIN episodic_memories em ON em.id = mcl.memory_id
-                                  WHERE mcl.code_node_id = ? AND em.project = ? AND em.is_active = 1`).all(currNodeId, projectId);
+        const linksSql = `
+          SELECT mcl.link_type, em.* FROM memory_code_links mcl
+          JOIN episodic_memories em ON em.id = mcl.memory_id
+          LEFT JOIN memory_git_branches mgb ON mgb.memory_id = em.id
+          WHERE mcl.code_node_id = ? AND em.project = ? AND em.is_active = 1
+            AND (mgb.branch_name IS NULL OR mgb.branch_name = ?)
+        `;
+        const links = db.prepare(linksSql).all(currNodeId, projectId, gitInfo.branch);
         
         for (const link of links) {
           if (!seenMemIds.has(link.id)) {
@@ -2142,12 +2180,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         WHERE cna.activation > ? AND cn.project = ?
       `).all(threshold, projectId);
 
+      const gitInfo = getCurrentGitInfo();
       for (const node of activatedNodes) {
-        const links = db.prepare(`
+        const linksSql = `
           SELECT mcl.link_type, em.* FROM memory_code_links mcl
           JOIN episodic_memories em ON em.id = mcl.memory_id
+          LEFT JOIN memory_git_branches mgb ON mgb.memory_id = em.id
           WHERE mcl.code_node_id = ? AND em.project = ? AND em.is_active = 1
-        `).all(node.node_id, projectId);
+            AND (mgb.branch_name IS NULL OR mgb.branch_name = ?)
+        `;
+        const links = db.prepare(linksSql).all(node.node_id, projectId, gitInfo.branch);
 
         for (const link of links) {
           if (!seenMemIds.has(link.id)) {
@@ -2288,6 +2330,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         nowStr,
         calculateNextReview(strength, 1, 0.5, "raw")
       );
+
+      const gitInfo = getCurrentGitInfo();
+      db.prepare("INSERT OR REPLACE INTO memory_git_branches (memory_id, branch_name, commit_sha) VALUES (?, ?, ?)")
+        .run(memoryId, gitInfo.branch, gitInfo.commit);
 
       if (hasVectors) {
         try {
