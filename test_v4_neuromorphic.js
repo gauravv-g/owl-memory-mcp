@@ -288,6 +288,104 @@ function handleRecall(args) {
   return db.prepare(querySql).all(projectId, testActiveBranch);
 }
 
+function handleGlymphaticPrune(args) {
+  const projectId = args.project || "default";
+  const minStrength = args.min_strength !== undefined ? args.min_strength : 0.1;
+  const dryRun = args.dry_run !== undefined ? args.dry_run : false;
+
+  const decayedMemories = db.prepare(`
+    SELECT id, content, strength, access_count, event_type, created_at
+    FROM episodic_memories
+    WHERE project = ? AND is_active = 1
+      AND strength < ? AND access_count <= 1
+      AND (event_type = 'observation' OR event_type = 'error')
+  `).all(projectId, minStrength);
+
+  const prunedIds = [];
+  if (!dryRun) {
+    const pruneStmt = db.prepare("UPDATE episodic_memories SET is_active = 0, updated_at = ? WHERE id = ?");
+    const nowStr = new Date().toISOString();
+    for (const mem of decayedMemories) {
+      pruneStmt.run(nowStr, mem.id);
+      prunedIds.push(mem.id);
+    }
+  }
+
+  const allActive = db.prepare("SELECT id, content FROM episodic_memories WHERE project = ? AND is_active = 1").all(projectId);
+  const groups = new Map();
+  for (const mem of allActive) {
+    const cleanContent = mem.content.replace(/[0-9a-fA-F]{16}/g, "[ID]").replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z/g, "[TIME]");
+    if (!groups.has(cleanContent)) groups.set(cleanContent, []);
+    groups.get(cleanContent).push(mem.id);
+  }
+
+  const mergedCount = [];
+  if (!dryRun) {
+    const nowStr = new Date().toISOString();
+    for (const [pattern, ids] of groups.entries()) {
+      if (ids.length > 1) {
+        const primaryId = ids[0];
+        const duplicateIds = ids.slice(1);
+        
+        const sumRow = db.prepare(`
+          SELECT SUM(access_count) as total_access, MAX(strength) as max_strength 
+          FROM episodic_memories 
+          WHERE id IN (${ids.map(() => "?").join(",")})
+        `).get(...ids);
+
+        db.prepare(`
+          UPDATE episodic_memories 
+          SET access_count = ?, strength = ?, updated_at = ? 
+          WHERE id = ?
+        `).run(sumRow.total_access, Math.min(1.0, sumRow.max_strength + 0.1), nowStr, primaryId);
+
+        const deactivateStmt = db.prepare("UPDATE episodic_memories SET is_active = 0, updated_at = ? WHERE id = ?");
+        for (const dupId of duplicateIds) {
+          deactivateStmt.run(nowStr, dupId);
+          mergedCount.push(dupId);
+        }
+      }
+    }
+  }
+
+  return {
+    decayed_memories_found: decayedMemories.length,
+    pruned_memories_count: dryRun ? 0 : prunedIds.length,
+    pruned_ids: prunedIds,
+    redundant_memories_merged: mergedCount.length,
+    merged_ids: mergedCount
+  };
+}
+
+function handleAnonymizeMemory(args) {
+  const memoryId = args.memory_id;
+  const mem = db.prepare("SELECT * FROM episodic_memories WHERE id = ?").get(memoryId);
+  if (!mem) return null;
+
+  let content = mem.content;
+  content = content.replace(/(api_key|token|password|auth|secret|key|passwd)\s*[:=]\s*["']?[a-zA-Z0-9_\-\.\=\+]{16,}["']?/gi, "$1 = [SCRUBBED]");
+  content = content.replace(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, "[IP_ADDRESS]");
+  content = content.replace(/(?:[a-zA-Z]:)?\/Users\/[^\/]+/gi, "/Users/[USER]");
+  
+  let signature = "generic_observation";
+  const errMatch = content.match(/([A-Z][a-zA-Z]+Error|Exception|CRITICAL\s+[A-Z]+)/);
+  if (errMatch) {
+    signature = errMatch[1];
+  }
+
+  const cleanPattern = content.trim();
+  const hash = crypto.createHash("sha256").update(signature + ":" + cleanPattern).digest("hex");
+
+  return {
+    memory_id: memoryId,
+    event_type: mem.event_type,
+    original_length: mem.content.length,
+    anonymized_content: cleanPattern,
+    extracted_signature: signature,
+    cryptographic_hash: hash
+  };
+}
+
 // ─── Run Tests ───────────────────────────────────────────────────────────────
 
 async function runTests() {
@@ -397,8 +495,6 @@ async function runTests() {
   testActiveBranch = "main";
   const mainMems = handleRecall({ project: "neuromorphic-test" });
   
-  // Recall on main should return the global memory + the first memory (since it was created while active branch was main)
-  // But it must NOT return the feature-x specific memory!
   assert(mainMems.length === 2, "Recall on 'main' branch returned correct 2 memories");
   assert(!mainMems.some(m => m.id === featureError.stored_memory_id), "Recall on 'main' successfully ignored 'feature-x' memories");
 
@@ -408,6 +504,72 @@ async function runTests() {
   assert(featureMems.length === 2, "Recall on 'feature-x' branch returned correct 2 memories");
   assert(featureMems.some(m => m.id === featureError.stored_memory_id), "Recall on 'feature-x' successfully retrieved branch-specific error memory");
   assert(featureMems.some(m => m.id === globalMemId), "Recall on 'feature-x' successfully retrieved global memory");
+
+  console.log("");
+
+  // 4. Test Glymphatic Sleep-State Pruning & Consolidation
+  console.log("[Test 4] Testing Glymphatic Sleep-State Pruning & Consolidation...");
+
+  // Write a decayed memory with strength 0.05
+  const decayedId = crypto.randomBytes(8).toString("hex");
+  db.prepare(`
+    INSERT INTO episodic_memories (id, content, event_type, created_at, updated_at, project, strength, access_count)
+    VALUES (?, 'Stale observation to prune', 'observation', ?, ?, 'neuromorphic-test', 0.05, 1)
+  `).run(decayedId, now, now);
+
+  // Write duplicate error logs to test merging
+  const dup1 = crypto.randomBytes(8).toString("hex");
+  const dup2 = crypto.randomBytes(8).toString("hex");
+  const errorMsg = "TypeError: db.prepare is not a function at init";
+  db.prepare(`
+    INSERT INTO episodic_memories (id, content, event_type, created_at, updated_at, project, strength, access_count)
+    VALUES (?, ?, 'error', ?, ?, 'neuromorphic-test', 0.8, 1)
+  `).run(dup1, errorMsg, now, now);
+  db.prepare(`
+    INSERT INTO episodic_memories (id, content, event_type, created_at, updated_at, project, strength, access_count)
+    VALUES (?, ?, 'error', ?, ?, 'neuromorphic-test', 0.8, 1)
+  `).run(dup2, errorMsg, now, now);
+
+  const pruneRes = handleGlymphaticPrune({ project: "neuromorphic-test", min_strength: 0.1 });
+  assert(pruneRes.pruned_memories_count === 1, "Decayed memory was successfully pruned");
+  assert(pruneRes.pruned_ids[0] === decayedId, "Pruned memory matches correct ID");
+  assert(pruneRes.redundant_memories_merged === 1, "Redundant duplicate memories were successfully merged");
+  assert(pruneRes.merged_ids[0] === dup2, "Deactivated duplicate memory matches correct ID");
+
+  // Verify DB state
+  const decayedRow = db.prepare("SELECT is_active FROM episodic_memories WHERE id = ?").get(decayedId);
+  assert(decayedRow.is_active === 0, "Decayed memory is soft-deleted in database");
+
+  const dup2Row = db.prepare("SELECT is_active FROM episodic_memories WHERE id = ?").get(dup2);
+  assert(dup2Row.is_active === 0, "Duplicate error log is soft-deleted in database");
+
+  const primaryRow = db.prepare("SELECT access_count, strength FROM episodic_memories WHERE id = ?").get(dup1);
+  assert(primaryRow.access_count === 2, "Primary consolidated memory accumulated access count (2)");
+  assert(primaryRow.strength === 0.9, "Primary consolidated memory strength increased by learning factor (0.9)");
+
+  console.log("");
+
+  // 5. Test Memory Anonymization & Hashing
+  console.log("[Test 5] Testing Memory Anonymization & P2P Cryptographic hashing...");
+
+  // Write a memory with credentials, local paths, and IPs
+  const sensitiveMemId = crypto.randomBytes(8).toString("hex");
+  const sensitiveContent = `Connection error: api_key = "abc123xyz7890def" on server 192.168.1.100 while scanning C:/Users/shiva/code/index.js. TypeError: timeout`;
+  db.prepare(`
+    INSERT INTO episodic_memories (id, content, event_type, created_at, updated_at, project)
+    VALUES (?, ?, 'error', ?, ?, 'neuromorphic-test')
+  `).run(sensitiveMemId, sensitiveContent, now, now);
+
+  const anonRes = handleAnonymizeMemory({ memory_id: sensitiveMemId });
+  assert(!!anonRes, "Anonymization handler ran successfully");
+  assert(!anonRes.anonymized_content.includes("abc123xyz7890def"), "Scrubbed API key successfully");
+  assert(anonRes.anonymized_content.includes("api_key = [SCRUBBED]"), "Inserted API key placeholder");
+  assert(!anonRes.anonymized_content.includes("192.168.1.100"), "Scrubbed IP address successfully");
+  assert(anonRes.anonymized_content.includes("[IP_ADDRESS]"), "Inserted IP address placeholder");
+  assert(!anonRes.anonymized_content.includes("/shiva"), "Scrubbed local system username path successfully");
+  assert(anonRes.anonymized_content.includes("/Users/[USER]"), "Inserted username path placeholder");
+  assert(anonRes.extracted_signature === "TypeError", "Extracted correct exception signature");
+  assert(anonRes.cryptographic_hash.length === 64, "Generated valid SHA-256 cryptographic hash");
 
   console.log("\n======================================================================");
   console.log(`   TESTS COMPLETED: ${passed}/${total} assertions passed (${Math.round(passed/total * 100)}%)`);

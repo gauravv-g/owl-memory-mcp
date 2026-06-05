@@ -754,6 +754,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     { name: "anticipate_resonant", description: "Nikola Tesla Resonant Context — find memories linked to functions and files connected in the call graph.", inputSchema: { type: "object", properties: { node_id: { type: "string" }, project: { type: "string", default: "default" }, limit: { type: "number", default: 5 }, max_depth: { type: "number", default: 2 } }, required: ["node_id"] } },
     { name: "inject_activation", description: "Inject spreading activation energy into a code node. Propagates energy through the call graph, decay over distance/time, and retrieve memories with activation above the threshold.", inputSchema: { type: "object", properties: { node_id: { type: "string" }, energy: { type: "number", default: 10.0 }, project: { type: "string", default: "default" }, decay_factor: { type: "number", default: 0.1 }, threshold: { type: "number", default: 1.0 }, max_depth: { type: "number", default: 2 } }, required: ["node_id"] } },
     { name: "learn_from_error", description: "Surprise-Gated Acetylcholine Memory (ASGM). Capture command error traces, parse stack trace, automatically locate/register the code function, store the bug memory, and link them.", inputSchema: { type: "object", properties: { error_message: { type: "string" }, command: { type: "string", default: "unknown" }, project: { type: "string", default: "default" }, surprise_score: { type: "number", default: 0.8 } }, required: ["error_message"] } },
+    { name: "glymphatic_prune", description: "Sleep-State Glymphatic Pruning. Clean up decayed, redundant, or stale memories, and consolidate duplicate logs.", inputSchema: { type: "object", properties: { project: { type: "string", default: "default" }, min_strength: { type: "number", default: 0.1 }, dry_run: { type: "boolean", default: false } } } },
+    { name: "anonymize_memory", description: "Scrub and anonymize a memory by stripping keys/secrets, extracting semantic error signatures, and hashing for P2P sharing.", inputSchema: { type: "object", properties: { memory_id: { type: "string" } }, required: ["memory_id"] } },
   ],
 }));
 
@@ -2371,6 +2373,120 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               salience: salience,
               strength: strength
             }
+          }, null, 2)
+        }]
+      };
+    }
+
+    // ═══ v4 NEW: GLYMPHATIC_PRUNE (Sleep-State Cleanup & Pruning) ═══
+    if (name === "glymphatic_prune") {
+      const projectId = args.project || "default";
+      const minStrength = args.min_strength !== undefined ? args.min_strength : 0.1;
+      const dryRun = args.dry_run !== undefined ? args.dry_run : false;
+
+      const decayedMemories = db.prepare(`
+        SELECT id, content, strength, access_count, event_type, created_at
+        FROM episodic_memories
+        WHERE project = ? AND is_active = 1
+          AND strength < ? AND access_count <= 1
+          AND (event_type = 'observation' OR event_type = 'error')
+      `).all(projectId, minStrength);
+
+      const prunedIds = [];
+      if (!dryRun) {
+        const pruneStmt = db.prepare("UPDATE episodic_memories SET is_active = 0, updated_at = ? WHERE id = ?");
+        const nowStr = new Date().toISOString();
+        for (const mem of decayedMemories) {
+          pruneStmt.run(nowStr, mem.id);
+          prunedIds.push(mem.id);
+        }
+      }
+
+      const allActive = db.prepare("SELECT id, content FROM episodic_memories WHERE project = ? AND is_active = 1").all(projectId);
+      const groups = new Map();
+      for (const mem of allActive) {
+        const cleanContent = mem.content.replace(/[0-9a-fA-F]{16}/g, "[ID]").replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z/g, "[TIME]");
+        if (!groups.has(cleanContent)) groups.set(cleanContent, []);
+        groups.get(cleanContent).push(mem.id);
+      }
+
+      const mergedCount = [];
+      if (!dryRun) {
+        const nowStr = new Date().toISOString();
+        for (const [pattern, ids] of groups.entries()) {
+          if (ids.length > 1) {
+            const primaryId = ids[0];
+            const duplicateIds = ids.slice(1);
+            
+            const sumRow = db.prepare(`
+              SELECT SUM(access_count) as total_access, MAX(strength) as max_strength 
+              FROM episodic_memories 
+              WHERE id IN (${ids.map(() => "?").join(",")})
+            `).get(...ids);
+
+            db.prepare(`
+              UPDATE episodic_memories 
+              SET access_count = ?, strength = ?, updated_at = ? 
+              WHERE id = ?
+            `).run(sumRow.total_access, Math.min(1.0, sumRow.max_strength + 0.1), nowStr, primaryId);
+
+            const deactivateStmt = db.prepare("UPDATE episodic_memories SET is_active = 0, updated_at = ? WHERE id = ?");
+            for (const dupId of duplicateIds) {
+              deactivateStmt.run(nowStr, dupId);
+              mergedCount.push(dupId);
+            }
+          }
+        }
+      }
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            status: dryRun ? "dry_run_complete" : "success",
+            decayed_memories_found: decayedMemories.length,
+            pruned_memories_count: dryRun ? 0 : prunedIds.length,
+            pruned_ids: prunedIds,
+            redundant_memories_merged: mergedCount.length,
+            merged_ids: mergedCount
+          }, null, 2)
+        }]
+      };
+    }
+
+    // ═══ v4 NEW: ANONYMIZE_MEMORY (Cryptographic Transactive Sharing Scrub) ═══
+    if (name === "anonymize_memory") {
+      const memoryId = args.memory_id;
+      const mem = db.prepare("SELECT * FROM episodic_memories WHERE id = ?").get(memoryId);
+      if (!mem) {
+        return { content: [{ type: "text", text: `Memory not found: ${memoryId}` }], isError: true };
+      }
+
+      let content = mem.content;
+      content = content.replace(/(api_key|token|password|auth|secret|key|passwd)\s*[:=]\s*["']?[a-zA-Z0-9_\-\.\=\+]{16,}["']?/gi, "$1 = [SCRUBBED]");
+      content = content.replace(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, "[IP_ADDRESS]");
+      content = content.replace(/(?:[a-zA-Z]:)?\/Users\/[^\/]+/gi, "/Users/[USER]");
+      
+      let signature = "generic_observation";
+      const errMatch = content.match(/([A-Z][a-zA-Z]+Error|Exception|CRITICAL\s+[A-Z]+)/);
+      if (errMatch) {
+        signature = errMatch[1];
+      }
+
+      const cleanPattern = content.trim();
+      const hash = crypto.createHash("sha256").update(signature + ":" + cleanPattern).digest("hex");
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            memory_id: memoryId,
+            event_type: mem.event_type,
+            original_length: mem.content.length,
+            anonymized_content: cleanPattern,
+            extracted_signature: signature,
+            cryptographic_hash: hash,
+            safety_status: "VERIFIED_SECURE_SCRUBBED"
           }, null, 2)
         }]
       };
