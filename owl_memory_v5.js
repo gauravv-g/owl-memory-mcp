@@ -46,6 +46,7 @@ let hasVectors = false;
 let nerModel = null;
 let nerLoading = null;
 let hasNER = false;
+let lastFocusedNodeId = null;
 
 function loadSqliteVec(db) {
   if (sqliteVecLoaded) return true;
@@ -273,6 +274,15 @@ db.exec(`
     memories_processed INTEGER DEFAULT 0, memories_merged INTEGER DEFAULT 0, memories_pruned INTEGER DEFAULT 0,
     status TEXT DEFAULT 'completed'
   );
+
+  CREATE TABLE IF NOT EXISTS synaptic_weights (
+    source_id TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    attention_weight REAL DEFAULT 0.1,
+    co_occurrences INTEGER DEFAULT 1,
+    last_transition TEXT NOT NULL,
+    PRIMARY KEY(source_id, target_id)
+  );
 `);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -311,6 +321,141 @@ function resolveActiveNode(activeFile, codeSnippet, projectId = "default") {
     }
   }
   return relPath;
+}
+
+function updateHebbianTransition(fromNode, toNode) {
+  if (!fromNode || !toNode || fromNode === toNode) return;
+  const now = new Date().toISOString();
+  const row = db.prepare("SELECT attention_weight FROM synaptic_weights WHERE source_id = ? AND target_id = ?").get(fromNode, toNode);
+  if (row) {
+    const w = row.attention_weight;
+    const nextW = w + 0.1 * (1.0 - w);
+    db.prepare("UPDATE synaptic_weights SET attention_weight = ?, co_occurrences = co_occurrences + 1, last_transition = ? WHERE source_id = ? AND target_id = ?")
+      .run(nextW, now, fromNode, toNode);
+  } else {
+    db.prepare("INSERT INTO synaptic_weights (source_id, target_id, attention_weight, co_occurrences, last_transition) VALUES (?, ?, 0.1, 1, ?)")
+      .run(fromNode, toNode, now);
+  }
+}
+
+function getRefractoryDilation(activeNodeId, projectId) {
+  if (!activeNodeId) return [];
+  const nodes = db.prepare("SELECT * FROM code_nodes WHERE project = ?").all(projectId);
+  const dilated = [];
+  
+  for (const node of nodes) {
+    let state = "gas";
+    let gravity = 0;
+    
+    if (node.id === activeNodeId) {
+      state = "solid";
+      gravity = 1.0;
+    } else {
+      const dist = getCodePathDistance(activeNodeId, node.id);
+      const hebb = db.prepare("SELECT attention_weight FROM synaptic_weights WHERE source_id = ? AND target_id = ?").get(activeNodeId, node.id);
+      const weight = hebb ? hebb.attention_weight : 0.0;
+      
+      const gravityVal = (weight * 0.5) + (1.0 / (dist + 1) * 0.5);
+      gravity = Math.round(gravityVal * 100) / 100;
+      
+      if (dist <= 1 || weight > 0.4) {
+        state = "liquid";
+      }
+    }
+    
+    let representation = "";
+    if (state === "solid") {
+      representation = node.content || `// File content of ${node.id} is solid context.`;
+    } else if (state === "liquid") {
+      const clean = (node.content || "").split("\n").filter(line => {
+        const l = line.trim();
+        return l.startsWith("import") || l.startsWith("const ") || l.startsWith("require") || l.startsWith("function") || l.startsWith("class") || l.startsWith("export");
+      }).slice(0, 15).join("\n");
+      representation = `// File Outline: ${node.id}\n${clean || "(Outline empty)"}`;
+    } else {
+      representation = `// Concept: ${node.id} (${node.node_type})`;
+    }
+    
+    dilated.push({
+      node_id: node.id,
+      state,
+      gravity,
+      representation
+    });
+  }
+  return dilated.sort((a, b) => b.gravity - a.gravity).slice(0, 15);
+}
+
+function runAutonomicDreamSimulation(projectId = "default") {
+  const hotspots = calculateRefactoringHotspots(projectId);
+  if (hotspots.length === 0) return { status: "no_hotspots_found" };
+
+  const target = hotspots[0];
+  const filepath = target.filepath;
+  const fullPath = path.resolve(process.cwd(), filepath);
+
+  if (!fs.existsSync(fullPath)) return { status: "file_not_found", filepath };
+
+  const tempDir = path.join(process.cwd(), ".owl-temp");
+  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+  const tempFile = path.join(tempDir, path.basename(filepath));
+  const now = new Date().toISOString();
+
+  try {
+    fs.copyFileSync(fullPath, tempFile);
+
+    let content = fs.readFileSync(tempFile, "utf-8");
+    let mutated = false;
+    if (content.includes("db.prepare")) {
+      content = content.replace("db.prepare", "/* BRS MUTATION */ undefined.prepare");
+      mutated = true;
+    } else if (content.includes("require")) {
+      content = content.replace("require", "/* BRS MUTATION */ undefined.require");
+      mutated = true;
+    }
+
+    if (!mutated) {
+      content = "throw new SyntaxError('BRS AUTONOMIC MUTATION FAILURE');\n" + content;
+    }
+
+    fs.writeFileSync(tempFile, content, "utf-8");
+
+    let stdout = "", stderr = "", code = 0;
+    try {
+      execSync(`node -c "${tempFile}"`, { encoding: "utf-8", stdio: "pipe" });
+    } catch (err) {
+      stderr = err.message + "\n" + (err.stderr || "");
+      code = err.status || 1;
+    }
+
+    let harvestResult = null;
+    if (code !== 0) {
+      const errorLog = stderr || stdout;
+      const simId = generateId(errorLog, "dream_sim");
+      db.prepare(`
+        INSERT INTO threat_patterns (pattern_name, description, trigger_conditions, severity, created_at)
+        VALUES (?, ?, ?, 'high', ?)
+      `).run(`SIM_${simId}`, `Simulated mutation failure in ${filepath}: ${errorLog.slice(0, 200)}`, JSON.stringify({ file: filepath, mutation: "syntax_break" }), now);
+      
+      harvestResult = { status: "logged_threat", pattern_name: `SIM_${simId}` };
+    }
+
+    return {
+      status: "completed",
+      mutated_file: filepath,
+      exit_code: code,
+      harvest_result: harvestResult
+    };
+
+  } catch (err) {
+    return { status: "failed", error: err.message };
+  } finally {
+    try {
+      if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+      if (fs.existsSync(tempDir)) fs.rmdirSync(tempDir);
+    } catch (e) {}
+  }
 }
 
 // ─── 1. ALBERT EINSTEIN: RELATIVISTIC CODE SPACE-TIME (Gravity) ─────────────
@@ -842,6 +987,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           db.prepare("UPDATE code_nodes SET edit_count = edit_count + 1 WHERE id = ?").run(activeNodeId);
         }
 
+        if (activeNodeId) {
+          updateHebbianTransition(lastFocusedNodeId, activeNodeId);
+          lastFocusedNodeId = activeNodeId;
+        }
+
         // Intercept compile/build error immediately
         if (terminalOutput && (terminalOutput.includes("Error") || terminalOutput.includes("Exception") || terminalOutput.includes("failed"))) {
           await harvestErrorMusk(terminalOutput, "auto_intercept", projectId);
@@ -853,6 +1003,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const dependencyAlerts = checkDependencyStewardship(activeFile);
         const healingMocks = calculateDaVinciHealing(activeNodeId);
         const hotspots = calculateRefactoringHotspots(projectId);
+        const dilatedContext = getRefractoryDilation(activeNodeId, projectId);
 
         return {
           content: [{
@@ -863,7 +1014,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               resonance_memories: resonantContext,
               threat_warnings: secretContradictions.concat(dependencyAlerts),
               refactoring_hotspots: hotspots,
-              self_healing_suggestions: healingMocks
+              self_healing_suggestions: healingMocks,
+              dilated_context: dilatedContext
             }, null, 2)
           }]
         };
@@ -967,7 +1119,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       if (action === "dream") {
         const rep = consolidateMemories(projectId);
-        return { content: [{ type: "text", text: JSON.stringify({ status: "dream_cycle_completed", report: rep }) }] };
+        const sim = runAutonomicDreamSimulation(projectId);
+        return { content: [{ type: "text", text: JSON.stringify({ status: "dream_cycle_completed", report: rep, simulation: sim }) }] };
       }
     }
 
@@ -977,17 +1130,241 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+// ─── Resource Helpers ────────────────────────────────────────────────────────
+function generate10YearOldExplanation(node) {
+  if (node.group === "file") {
+    const filePath = node.id.toLowerCase();
+    if (filePath.includes("test")) {
+      return "🧪 <strong>The Inspector Badge</strong>: This is a tester file. It runs mock runs with fake data to make sure our main program doesn't break when we make changes.";
+    }
+    if (filePath.includes("database") || filePath.includes("db") || filePath.includes("schema")) {
+      return "🗄️ <strong>The Digital Filing Cabinet</strong>: This manages our SQL database tables. It stores memories, errors, and habits so they are saved forever, even when the computer restarts.";
+    }
+    if (filePath.includes("server") || filePath.includes("mcp") || filePath.includes("handler")) {
+      return "🔌 <strong>The Post Office</strong>: This is the server logic. It listens for incoming letters (API calls), reads them, and sends back the correct response.";
+    }
+    if (filePath.includes("vector") || filePath.includes("embedding")) {
+      return "🗺️ <strong>The GPS Map of Meanings</strong>: This turns normal words into lists of numbers (vector coordinates) so we can calculate how similar two ideas are, like finding nearby cities on a map.";
+    }
+    if (filePath.includes("ner") || filePath.includes("entity")) {
+      return "🕵️ <strong>The Word Detective</strong>: This reads your messages and extracts important names, places, and project titles automatically.";
+    }
+    return `📄 <strong>The Code Recipe</strong>: A javascript source file containing custom logic for the <code>${node.label}</code> component.`;
+  }
+
+  if (node.group === "function") {
+    const name = node.id.split("::").pop().toLowerCase();
+    if (name.includes("dream") || name.includes("consolidate")) {
+      return "🌙 <strong>The Sleep Rehearsal Machine</strong>: This function runs when the computer is resting. It reviews all recorded facts, merges similar ones, deletes unimportant details, and simulates error patterns to prepare for the future.";
+    }
+    if (name.includes("perceive")) {
+      return "👁️ <strong>The Active Focus Eye</strong>: This keeps track of what file you are currently looking at and strengthens connections between files you edit together.";
+    }
+    if (name.includes("harvest") || name.includes("bug") || name.includes("error")) {
+      return "🚨 <strong>The Error Catcher</strong>: If a command crashes, this runs immediately to capture the stack trace and log a warning.";
+    }
+    if (name.includes("hebbian") || name.includes("transition")) {
+      return "🔗 <strong>The Memory Glue</strong>: This strengthens connections between files. If you edit File A and File B at the same time, this glues them together so we remember they are related.";
+    }
+    if (name.includes("dilation") || name.includes("gravity")) {
+      return "🔬 <strong>The Context Shrink Ray</strong>: To save memory and token costs, this shrinks far-away files into tiny summaries while expanding the file you are actively working on.";
+    }
+    if (name.includes("remember") || name.includes("recall")) {
+      return "📥 <strong>The File Cabinet Drawer</strong>: This lets us slide a new memory into the drawer or search the drawer for matching files.";
+    }
+    return `⚙️ <strong>A Small Sub-Assembly Machine</strong>: A function named <code>${name}</code> designed to perform a specific job in the system.`;
+  }
+
+  // Memory node
+  if (node.group === "error" || node.group === "bug") {
+    return "💥 <strong>The Crash Site</strong>: An error log saved when a command failed. It shows exactly which line broke and why.";
+  }
+  if (node.group === "decision") {
+    return "⚖️ <strong>The Choice Book</strong>: A record of a decision we made. We predicted the outcome to help us make better decisions next time.";
+  }
+  if (node.group === "observation") {
+    return "📝 <strong>The Diary Page</strong>: A simple observation or note recorded during a coding session.";
+  }
+  if (node.group === "insight" || node.group === "learning") {
+    return "💡 <strong>Lightbulb Moment</strong>: An insight or learning experience recorded when a task was resolved successfully.";
+  }
+  if (node.group === "semantic") {
+    return "🏷️ <strong>The Concept Tag</strong>: A general fact or concept extracted from multiple observations.";
+  }
+  if (node.group === "procedural") {
+    return "🛹 <strong>The Skill Card</strong>: A procedural step-by-step tutorial learned by the system.";
+  }
+  if (node.group === "somatic") {
+    return "❤️ <strong>Emotional Resonance</strong>: A record of how we 'feel' about a file or folder based on whether it causes bugs (bad feelings) or success (good feelings).";
+  }
+
+  return "🧠 <strong>Cognitive Memory Unit</strong>: A unit of information stored in the OWL neuromorphic substrate.";
+}
+
+async function getGraphData() {
+  const nodes = [];
+  const edges = [];
+
+  // 1. Fetch Episodic Memories
+  const epMems = db.prepare("SELECT * FROM episodic_memories WHERE is_active = 1").all();
+  for (const m of epMems) {
+    nodes.push({
+      id: m.id,
+      label: m.content.slice(0, 60),
+      group: m.event_type || "observation",
+      size: Math.max(8, (m.strength || 0.5) * 15),
+      raw: { content: m.content, event_type: m.event_type, strength: m.strength, salience: m.salience, emotional_valence: m.emotional_valence }
+    });
+  }
+
+  // 2. Fetch Semantic Memories
+  const semMems = db.prepare("SELECT * FROM semantic_memories WHERE is_active = 1").all();
+  for (const m of semMems) {
+    nodes.push({
+      id: m.id,
+      label: m.content.slice(0, 60),
+      group: "semantic",
+      size: Math.max(8, (m.importance || 0.5) * 15),
+      raw: { content: m.content, concept_type: m.concept_type, importance: m.importance, confidence: m.confidence }
+    });
+  }
+
+  // 3. Fetch Procedural Memories
+  const procMems = db.prepare("SELECT * FROM procedural_memories WHERE is_active = 1").all();
+  for (const m of procMems) {
+    nodes.push({
+      id: m.id,
+      label: m.title,
+      group: "procedural",
+      size: 12,
+      raw: { content: m.content, title: m.title }
+    });
+  }
+
+  // 4. Fetch Somatic Memories
+  const somMems = db.prepare("SELECT * FROM somatic_memories WHERE is_active = 1").all();
+  for (const m of somMems) {
+    nodes.push({
+      id: m.id,
+      label: `Somatic: ${m.entity_name}`,
+      group: "somatic",
+      size: Math.max(8, (m.somatic_weight || 0.5) * 15),
+      raw: { entity_name: m.entity_name, entity_type: m.entity_type, somatic_valence: m.somatic_valence, somatic_weight: m.somatic_weight }
+    });
+  }
+
+  // 5. Fetch Code Nodes
+  const codeNodes = db.prepare("SELECT * FROM code_nodes").all();
+  for (const n of codeNodes) {
+    nodes.push({
+      id: n.id,
+      label: n.name,
+      group: n.node_type || "file",
+      size: Math.max(10, (n.edit_count || 0) * 1.5 + (n.bug_count || 0) * 3),
+      raw: { content: n.content, filepath: n.filepath, edit_count: n.edit_count, bug_count: n.bug_count }
+    });
+  }
+
+  // 6. Fetch Code Bugs
+  const bugs = db.prepare("SELECT * FROM code_bugs WHERE is_active = 1").all();
+  for (const b of bugs) {
+    nodes.push({
+      id: b.id,
+      label: `Bug: ${b.bug_type}`,
+      group: "bug",
+      size: 12,
+      raw: { bug_type: b.bug_type, description: b.description, file_path: b.file_path, line_number: b.line_number }
+    });
+  }
+
+  // 7. Fetch Decisions
+  const decs = db.prepare("SELECT * FROM decisions").all();
+  for (const d of decs) {
+    nodes.push({
+      id: d.id,
+      label: d.title || `Decision: ${d.id}`,
+      group: "decision",
+      size: 12,
+      raw: { context: d.context, chosen_option: d.chosen_option, predicted_outcome: d.predicted_outcome }
+    });
+  }
+
+  // 8. Fetch Threat Patterns
+  const threats = db.prepare("SELECT * FROM threat_patterns WHERE is_active = 1").all();
+  for (const t of threats) {
+    nodes.push({
+      id: `threat_${t.id}`,
+      label: t.pattern_name,
+      group: "error",
+      size: 14,
+      raw: { description: t.description, severity: t.severity }
+    });
+  }
+
+  // Generate 10-year-old child style explanations for all nodes
+  for (const node of nodes) {
+    node.simple_explanation = generate10YearOldExplanation(node);
+  }
+
+  const nodeIds = new Set(nodes.map(n => n.id));
+
+  // 9. Fetch Code Edges
+  const codeEdges = db.prepare("SELECT * FROM code_edges").all();
+  for (const e of codeEdges) {
+    edges.push({ source: e.source_id, target: e.target_id, type: e.edge_type || "calls" });
+  }
+
+  // 10. Fetch Memory-Code Links
+  const memLinks = db.prepare("SELECT * FROM memory_code_links").all();
+  for (const l of memLinks) {
+    edges.push({ source: l.memory_id, target: l.code_node_id, type: l.link_type || "associated" });
+  }
+
+  // 11. Fetch Synaptic Weights
+  const synWeights = db.prepare("SELECT * FROM synaptic_weights").all();
+  for (const w of synWeights) {
+    edges.push({ source: w.source_id, target: w.target_id, type: "synaptic", weight: w.attention_weight });
+  }
+
+  // 12. Fetch Causal Links
+  const causalLinks = db.prepare("SELECT * FROM causal_links").all();
+  for (const c of causalLinks) {
+    edges.push({ source: c.cause_id, target: c.effect_id, type: c.link_type || "causes" });
+  }
+
+  // Filter out invalid edges (dangling links)
+  const cleanEdges = edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
+
+  return { nodes, edges: cleanEdges };
+}
+
 // ─── Resources ──────────────────────────────────────────────────────────────
 server.setRequestHandler(ListResourcesRequestSchema, async () => [
-  { uri: "owl-memory://graph", name: "Memory Graph v5", description: "V5 memory nodes and call links", mimeType: "application/json" }
+  { uri: "owl-memory://graph", name: "Memory Graph v5", description: "V5 memory nodes and call links", mimeType: "application/json" },
+  { uri: "owl-memory://graph-ui", name: "Memory Graph UI", description: "Interactive force-directed graph visualization with 10-year-old explanations", mimeType: "text/html" }
 ]);
 
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const uri = request.params.uri;
   if (uri === "owl-memory://graph") {
-    const mems = db.prepare("SELECT id, content, strength FROM episodic_memories WHERE is_active = 1").all();
-    const nodes = db.prepare("SELECT id, name, node_type FROM code_nodes").all();
-    return { contents: [{ uri, mimeType: "application/json", text: JSON.stringify({ memories: mems, code_nodes: nodes }) }] };
+    const data = await getGraphData();
+    return { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(data, null, 2) }] };
+  }
+  if (uri === "owl-memory://graph-ui") {
+    const data = await getGraphData();
+    const templatePath = path.join(__dirname, "graph-ui-preview.html");
+    let html = "";
+    if (fs.existsSync(templatePath)) {
+      html = fs.readFileSync(templatePath, "utf-8");
+      // Inject the inlined data
+      html = html.replace(
+        /const INLINED_GRAPH_DATA = [\s\S]*?;/,
+        `const INLINED_GRAPH_DATA = ${JSON.stringify(data)};`
+      );
+    } else {
+      html = `<html><body style="background:#05050d;color:#ef4444;font-family:sans-serif;padding:20px;"><h3>Error: graph-ui-preview.html template file not found on disk</h3></body></html>`;
+    }
+    return { contents: [{ uri, mimeType: "text/html", text: html }] };
   }
   throw new Error(`Unknown resource: ${uri}`);
 });
@@ -997,6 +1374,21 @@ async function main() {
   await server.connect(transport);
   warmupNER();
   console.error(`OWL Memory MCP v5.0 — UNS Engine running on stdio`);
+
+  // Launch background daemon automatically
+  try {
+    const daemonPath = path.join(__dirname, "owl_daemon.js");
+    const { spawn } = require("child_process");
+    const child = spawn("node", [daemonPath], {
+      detached: true,
+      stdio: "ignore",
+      env: { ...process.env, OWL_MEMORY_DB: DB_PATH }
+    });
+    child.unref();
+    console.error(`[OWL SERVER] Spawned background daemon`);
+  } catch (e) {
+    console.error(`[OWL SERVER] Failed to spawn background daemon: ${e.message}`);
+  }
 }
 
 main().catch(console.error);

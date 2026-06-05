@@ -7,7 +7,7 @@ const DB_PATH = path.join(os.homedir(), ".owl-memory", "memory-v32-graph-test4.d
 for (const f of [DB_PATH, DB_PATH + "-shm", DB_PATH + "-wal"]) {
   if (fs.existsSync(f)) fs.unlinkSync(f);
 }
-const SERVER = path.join(__dirname, "owl_memory_v3.2.js");
+const SERVER = path.join(__dirname, "owl_memory_v5.js");
 
 function sendRPC(proc, id, method, params) {
   return new Promise((resolve, reject) => {
@@ -56,15 +56,12 @@ async function main() {
   // Read graph JSON
   const g = await sendRPC(proc, 20, "resources/read", { uri: "owl-memory://graph" });
   console.log("Graph response keys:", Object.keys(g.result));
-  const graphText = g.result.text || g.result[0]?.text;
+  const graphText = g.result.contents?.[0]?.text;
   if (graphText) {
     const graph = JSON.parse(graphText);
     console.log("Graph JSON:");
     console.log("  Nodes:", graph.nodes.length);
     console.log("  Edges:", graph.edges.length);
-    console.log("  Entities:", graph.entities?.length || 0);
-    console.log("  Vector:", graph.stats?.vector_enabled);
-    console.log("  NER:", graph.stats?.ner_enabled);
     if (graph.nodes?.length > 0) {
       console.log("  Sample node:", JSON.stringify(graph.nodes[0]).slice(0, 120));
     }
@@ -75,14 +72,13 @@ async function main() {
   // Read graph UI
   const ui = await sendRPC(proc, 21, "resources/read", { uri: "owl-memory://graph-ui" });
   console.log("\nUI response keys:", Object.keys(ui.result));
-  const uiText = ui.result.text || ui.result[0]?.text;
+  const uiText = ui.result.contents?.[0]?.text;
   if (uiText) {
     console.log("Graph UI HTML:");
     console.log("  Length:", uiText.length, "chars");
     console.log("  Has D3:", uiText.includes("d3.v7"));
     console.log("  Has force:", uiText.includes("forceSimulation"));
     console.log("  Has zoom:", uiText.includes("d3.zoom"));
-    console.log("  Has tooltip:", uiText.includes("tooltip"));
     console.log("  Has entity-tag:", uiText.includes("entity-tag"));
     const outPath = path.join(__dirname, "graph-ui-preview.html");
     fs.writeFileSync(outPath, uiText);

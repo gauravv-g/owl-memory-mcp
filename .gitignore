@@ -11,3 +11,7 @@ __pycache__/
 .vscode/
 *.log
 graphify-out/
+.owl_context.md
+.owl-temp/
+*.pid
+

@@ -1,124 +1,607 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OWL Memory Graph</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OWL Cognitive Memory Substrate Graph</title>
 <script src="https://d3js.org/d3.v7.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a1a;color:#e0e0e0;overflow:hidden}
-#graph{width:100vw;height:100vh}
-#controls{position:fixed;top:16px;left:16px;background:rgba(15,15,35,0.92);border:1px solid #2a2a4a;border-radius:12px;padding:16px;max-width:320px;backdrop-filter:blur(10px);z-index:10}
-#controls h2{font-size:14px;color:#8b5cf6;margin-bottom:8px;font-weight:600}
-#controls .stat{font-size:11px;color:#888;margin:3px 0}
-#controls .stat span{color:#c0c0c0;font-weight:500}
-#controls .legend{margin-top:10px;padding-top:10px;border-top:1px solid #2a2a4a}
-#controls .legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:#888;margin:3px 0}
-#controls .legend-dot{width:10px;height:10px;border-radius:50%}
-#tooltip{position:fixed;background:rgba(20,20,50,0.95);border:1px solid #3a3a6a;border-radius:8px;padding:12px;max-width:350px;font-size:12px;pointer-events:none;opacity:0;transition:opacity 0.15s;z-index:20;backdrop-filter:blur(10px)}
-#tooltip .content{color:#e0e0e0;line-height:1.5}
-#tooltip .meta{color:#8b5cf6;font-size:10px;margin-top:6px}
-#tooltip .entity-tag{display:inline-block;background:#2a2a4a;border-radius:4px;padding:1px 6px;margin:2px;font-size:10px;color:#a78bfa}
-svg text{font-size:9px;fill:#aaa;pointer-events:none}
+:root {
+  --bg-color: #05050d;
+  --panel-bg: rgba(10, 10, 25, 0.82);
+  --border-color: rgba(60, 60, 120, 0.25);
+  --text-primary: #f1f3f9;
+  --text-secondary: #8a94ad;
+  --neon-cyan: #06b6d4;
+  --neon-purple: #8b5cf6;
+  --neon-gold: #f59e0b;
+  --neon-red: #ef4444;
+  --neon-green: #10b981;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--bg-color);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+#graph {
+  width: 100vw;
+  height: 100vh;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+}
+
+/* Glassmorphism Panels */
+.panel {
+  position: fixed;
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+  z-index: 10;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#left-panel {
+  top: 24px;
+  left: 24px;
+  width: 320px;
+  padding: 24px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+#right-panel {
+  top: 24px;
+  right: 24px;
+  width: 400px;
+  padding: 24px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  transform: translateX(450px); /* Collapsed by default */
+  opacity: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+#right-panel.active {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+h1, h2, h3 {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+h1 {
+  font-size: 16px;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+h1::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--neon-cyan);
+  border-radius: 50%;
+  box-shadow: 0 0 10px var(--neon-cyan);
+}
+
+h2 {
+  font-size: 13px;
+  color: var(--neon-purple);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+/* Search Input */
+.search-box {
+  position: relative;
+}
+
+.search-box input {
+  width: 100%;
+  background: rgba(25, 25, 45, 0.5);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.search-box input:focus {
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 12px rgba(6, 182, 212, 0.25);
+}
+
+/* Stats */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.stat-card {
+  background: rgba(25, 25, 45, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.stat-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+/* Legend */
+.legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.legend-shape {
+  width: 12px;
+  height: 12px;
+  display: inline-block;
+}
+
+.legend-shape.circle { border-radius: 50%; }
+.legend-shape.square { border-radius: 2px; }
+.legend-shape.diamond { transform: rotate(45deg); width: 8px; height: 8px; margin: 2px; }
+
+/* Detail Panel Content */
+.detail-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.detail-type {
+  font-size: 10px;
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  align-self: flex-start;
+}
+
+.detail-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.detail-body {
+  background: rgba(5, 5, 15, 0.4);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #d1d7e0;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.code-view {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  background: #020208 !important;
+  color: #a78bfa;
+}
+
+.close-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.close-btn:hover {
+  color: var(--text-primary);
+}
+
+/* SVG Rendering Styles */
+.node {
+  stroke-width: 1.5px;
+  cursor: pointer;
+  transition: r 0.2s, stroke-width 0.2s;
+}
+
+.link {
+  fill: none;
+  stroke-opacity: 0.2;
+  transition: stroke-opacity 0.2s, stroke-width 0.2s;
+}
+
+.link.highlighted {
+  stroke-opacity: 0.8 !important;
+  stroke-width: 2.5px !important;
+}
+
+.node.fade {
+  opacity: 0.15;
+}
+
+.link.fade {
+  stroke-opacity: 0.03 !important;
+}
+
+.node-label {
+  font-size: 10px;
+  font-weight: 500;
+  fill: var(--text-secondary);
+  pointer-events: none;
+  transition: fill 0.2s, font-size 0.2s;
+}
+
+.node-label.active {
+  font-size: 12px;
+  font-weight: 600;
+  fill: var(--text-primary);
+}
 </style>
 </head>
 <body>
-<div id="controls"><h2>OWL Memory Graph</h2><div id="stats"></div><div class="legend" id="legend"></div></div>
+
+<div id="controls" class="panel">
+  <h1>OWL Cognitive Substrate</h1>
+  
+  <div class="search-box">
+    <input type="text" id="search-input" placeholder="Search files, concepts, or errors...">
+  </div>
+
+  <div>
+    <h2>Substrate Health</h2>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value" id="stat-memories">0</div>
+        <div class="stat-label">Memories</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-files">0</div>
+        <div class="stat-label">AST Files</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <h2>Concept Legend</h2>
+    <div class="legend-list">
+      <div class="legend-item"><span class="legend-shape circle" style="background: var(--neon-cyan)"></span>Observation</div>
+      <div class="legend-item"><span class="legend-shape circle" style="background: var(--neon-gold)"></span>Insight / Decision</div>
+      <div class="legend-item"><span class="legend-shape circle" style="background: var(--neon-red)"></span>Error / Bug logs</div>
+      <div class="legend-item"><span class="legend-shape square" style="background: var(--neon-purple)"></span>File Node</div>
+      <div class="legend-item"><span class="legend-shape diamond" style="background: var(--neon-cyan)"></span>Function Node</div>
+    </div>
+  </div>
+</div>
+
+<div id="right-panel" class="panel">
+  <button class="close-btn" id="close-panel">×</button>
+  <div class="detail-header">
+    <div class="detail-type" id="node-type-badge">Memory</div>
+    <div class="detail-title" id="node-title">Database Connection Pool</div>
+  </div>
+  
+  <div>
+    <h2>Plain English (10-Year-Old Explanation)</h2>
+    <div class="explanation-card" id="node-simple-explanation" style="background: rgba(139, 92, 246, 0.12); border: 1px dashed rgba(139, 92, 246, 0.35); border-radius: 8px; padding: 12px; margin-top: 8px; font-size: 12.5px; line-height: 1.5; color: #a78bfa; font-weight: 500;">
+      Click a node to inspect...
+    </div>
+  </div>
+  
+  <div>
+    <h2>Raw Code / Memory Content</h2>
+    <div class="detail-body" id="node-description" style="margin-top: 8px;">Select a node to view details...</div>
+  </div>
+
+  <div id="details-metadata">
+    <h2>Anatomical Connections</h2>
+    <div id="node-connections-list" style="font-size: 11px; color: var(--text-secondary); display: flex; flex-direction: column; gap: 6px;">
+      No connections.
+    </div>
+  </div>
+</div>
+
 <div id="graph"></div>
-<div id="tooltip"><div class="content"></div><div class="meta"></div></div>
+
 <script>
-const WIDTH=window.innerWidth,HEIGHT=window.innerHeight;
-const svg=d3.select("#graph").append("svg").attr("width",WIDTH).attr("height",HEIGHT);
-const g=svg.append("g");
-const zoom=d3.zoom().scaleExtent([0.1,8]).on("zoom",(e)=>g.attr("transform",e.transform));
+// __INLINED_DATA_PLACEHOLDER__
+const colors = {
+  observation: "var(--neon-cyan)",
+  insight: "var(--neon-gold)",
+  decision: "var(--neon-gold)",
+  error: "var(--neon-red)",
+  learning: "#8b5cf6",
+  file: "var(--neon-purple)",
+  function: "#3b82f6",
+  semantic: "var(--neon-purple)",
+  procedural: "var(--neon-cyan)",
+  somatic: "var(--neon-gold)",
+  bug: "var(--neon-red)"
+};
+
+const groupNames = {
+  observation: "Observation",
+  insight: "Insight",
+  decision: "Decision",
+  error: "Error Log",
+  learning: "Learning",
+  file: "File Node",
+  function: "Function Node",
+  semantic: "Semantic Concept",
+  procedural: "Procedural Skill",
+  somatic: "Somatic Weight",
+  bug: "Bug Log"
+};
+
+const WIDTH = window.innerWidth, HEIGHT = window.innerHeight;
+const svg = d3.select("#graph").append("svg").attr("width", WIDTH).attr("height", HEIGHT);
+
+// Arrowheads definitions
+svg.append("defs").selectAll("marker")
+  .data(["calls", "imports", "associated", "caused_bug", "synaptic", "causes"])
+  .join("marker")
+  .attr("id", d => `arrow-${d}`)
+  .attr("viewBox", "0 -5 10 10")
+  .attr("refX", 18)
+  .attr("refY", 0)
+  .attr("markerWidth", 6)
+  .attr("markerHeight", 6)
+  .attr("orient", "auto")
+  .append("path")
+  .attr("fill", d => d === "caused_bug" || d === "error" ? "var(--neon-red)" : (d === "imports" ? "var(--neon-cyan)" : "rgba(100, 100, 200, 0.4)"))
+  .attr("d", "M0,-3L10,0L0,3");
+
+const g = svg.append("g");
+const zoom = d3.zoom().scaleExtent([0.1, 8]).on("zoom", (e) => g.attr("transform", e.transform));
 svg.call(zoom);
 
-const colors={observation:"#2196F3",decision:"#f59e0b",interaction:"#10b981",learning:"#8b5cf6",error:"#ef4444",insight:"#06b6d4",person:"#f472b6",organization:"#a78bfa",location:"#34d399",product:"#fbbf24",event:"#fb923c",finance:"#22d3ee",misc:"#94a3b8"};
-const groupNames={observation:"Observation",decision:"Decision",interaction:"Interaction",learning:"Learning",error:"Error",insight:"Insight",person:"Person",organization:"Organization",location:"Location",product:"Product",event:"Event",finance:"Finance",misc:"Misc"};
+// Toggle panels
+const rightPanel = document.getElementById("right-panel");
+document.getElementById("close-panel").onclick = () => rightPanel.classList.remove("active");
 
-const tooltip=d3.select("#tooltip");
-const tooltipContent=tooltip.select(".content");
-const tooltipMeta=tooltip.select(".meta");
+function renderGraph(data) {
+  const nodes = data.nodes.map(d => ({ ...d }));
+  const links = data.edges.map(d => ({ ...d }));
+  
+  // Set count stats
+  document.getElementById("stat-memories").innerText = nodes.filter(n => n.group !== 'file' && n.group !== 'function').length;
+  document.getElementById("stat-files").innerText = nodes.filter(n => n.group === 'file' || n.group === 'function').length;
 
-function showTooltip(d,event){
-  let html="<strong>"+d.label+"</strong>";
-  if(d.stage) html+="<br>Stage: "+d.stage;
-  if(d.salience) html+="<br>Salience: "+d.salience.toFixed(2);
-  if(d.group) html+="<br>Type: "+(groupNames[d.group]||d.group);
-  tooltipContent.html(html);
-  tooltipMeta.text(d.id.slice(0,8)+"...");
-  tooltip.style("opacity",1).style("left",(event.clientX+15)+"px").style("top",(event.clientY-10)+"px");
-}
-function hideTooltip(){tooltip.style("opacity",0);}
+  const simulation = d3.forceSimulation(nodes)
+    .force("link", d3.forceLink(links).id(d => d.id).distance(120).strength(0.4))
+    .force("charge", d3.forceManyBody().strength(-400))
+    .force("center", d3.forceCenter(WIDTH / 2, HEIGHT / 2))
+    .force("collision", d3.forceCollide().radius(d => d.size + 20));
 
-// Fetch graph data from MCP resource
-fetch("owl-memory://graph").then(r=>r.json()).then(data=>{
-  const nodes=data.nodes.map(d=>({...d}));
-  const links=data.edges.map(d=>({...d}));
-  const entMap={};
-  (data.entities||[]).forEach(e=>{if(!entMap[e.memory_id])entMap[e.memory_id]=[];entMap[e.memory_id].push(e);});
+  // Render edges
+  const link = g.append("g").selectAll("line")
+    .data(links)
+    .join("line")
+    .attr("class", "link")
+    .attr("stroke", d => d.type === "caused_bug" ? "var(--neon-red)" : (d.type === "imports" ? "var(--neon-cyan)" : "rgba(100, 100, 200, 0.2)"))
+    .attr("stroke-width", d => d.type === "caused_bug" ? 2.5 : 1.2)
+    .attr("marker-end", d => `url(#arrow-${d.type})`);
 
-  document.getElementById("stats").innerHTML=
-    '<div class="stat">Nodes: <span>'+nodes.length+'</span></div>'+
-    '<div class="stat">Edges: <span>'+links.length+'</span></div>'+
-    '<div class="stat">Entities: <span>'+(data.stats?.entities||0)+'</span></div>'+
-    '<div class="stat">Vector: <span>'+(data.stats?.vector_enabled?'ON':'OFF')+'</span></div>'+
-    '<div class="stat">NER: <span>'+(data.stats?.ner_enabled?'ON':'OFF')+'</span></div>';
+  // Render nodes using custom shapes
+  const node = g.append("g").selectAll(".node-element")
+    .data(nodes)
+    .join("g")
+    .attr("class", "node-element")
+    .style("cursor", "pointer")
+    .call(d3.drag()
+      .on("start", (e, d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on("drag", (e, d) => { d.fx = e.x; d.fy = e.y; })
+      .on("end", (e, d) => { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; })
+    );
 
-  // Build legend from actual groups
-  const groups=[...new Set(nodes.map(d=>d.group))].filter(Boolean);
-  const legendHtml=groups.slice(0,8).map(g=>'<div class="legend-item"><div class="legend-dot" style="background:'+(colors[g]||"#888")+'"></div>'+(groupNames[g]||g)+'</div>').join("");
-  document.getElementById("legend").innerHTML=legendHtml;
-
-  const simulation=d3.forceSimulation(nodes)
-    .force("link",d3.forceLink(links).id(d=>d.id).distance(80).strength(d=>(d.strength||0.3)*0.5))
-    .force("charge",d3.forceManyBody().strength(-200))
-    .force("center",d3.forceCenter(WIDTH/2,HEIGHT/2))
-    .force("collision",d3.forceCollide().radius(d=>d.size+5));
-
-  const link=g.append("g").selectAll("line").data(links).join("line")
-    .attr("stroke","#2a2a4a").attr("stroke-width",d=>Math.max(1,(d.strength||0.3)*3)).attr("stroke-opacity",0.5);
-
-  const node=g.append("g").selectAll("circle").data(nodes).join("circle")
-    .attr("r",d=>d.size||5).attr("fill",d=>colors[d.group]||"#6b7280")
-    .attr("stroke","#fff").attr("stroke-width",0.5).attr("stroke-opacity",0.3)
-    .style("cursor","pointer")
-    .call(d3.drag().on("start",(e,d)=>{if(!e.active)simulation.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y;}).on("drag",(e,d)=>{d.fx=e.x;d.fy=e.y;}).on("end",(e,d)=>{if(!e.active)simulation.alphaTarget(0);d.fx=null;d.fy=null;}))
-    .on("mouseover",(e,d)=>{showTooltip(e,d);d3.select(e.currentTarget).attr("stroke-width",2).attr("stroke-opacity",0.8);})
-    .on("mousemove",(e,d)=>showTooltip(e,d))
-    .on("mouseout",(e,d)=>{hideTooltip();d3.select(e.currentTarget).attr("stroke-width",0.5).attr("stroke-opacity",0.3);})
-    .on("click",(e,d)=>{
-      const ents=entMap[d.id]||[];
-      if(ents.length){
-        let html="<strong>"+d.label+"</strong><br><br>Entities:";
-        ents.forEach(ent=>{html+='<span class="entity-tag">'+ent.name+' ('+ent.entity_type+')</span>';});
-        tooltipContent.html(html);
-        tooltipMeta.text("Click elsewhere to close");
-        tooltip.style("opacity",1).style("left",(e.clientX+15)+"px").style("top",(e.clientY-10)+"px");
-      }
-    });
-
-  // Labels for high-salience nodes
-  const labels=g.append("g").selectAll("text").data(nodes.filter(d=>d.salience>0.5)).join("text")
-    .text(d=>d.label.length>30?d.label.slice(0,30)+"...":d.label)
-    .attr("dx",8).attr("dy",3);
-
-  simulation.on("tick",()=>{
-    link.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("x2",d=>d.target.x).attr("y2",d=>d.target.y);
-    node.attr("cx",d=>d.x).attr("cy",d=>d.y);
-    labels.attr("x",d=>d.x).attr("y",d=>d.y);
+  // Drawing actual shapes depending on node group
+  node.each(function(d) {
+    const el = d3.select(this);
+    const color = colors[d.group] || "#aaa";
+    if (d.group === "file") {
+      el.append("rect")
+        .attr("class", "node")
+        .attr("x", -d.size)
+        .attr("y", -d.size)
+        .attr("width", d.size * 2)
+        .attr("height", d.size * 2)
+        .attr("rx", 3)
+        .attr("fill", color)
+        .attr("stroke", "rgba(255, 255, 255, 0.25)");
+    } else if (d.group === "function") {
+      el.append("polygon")
+        .attr("class", "node")
+        .attr("points", `0,-${d.size * 1.2} ${d.size * 1.2},0 0,${d.size * 1.2} -${d.size * 1.2},0`)
+        .attr("fill", color)
+        .attr("stroke", "rgba(255, 255, 255, 0.25)");
+    } else {
+      // Memory nodes are circles
+      el.append("circle")
+        .attr("class", "node")
+        .attr("r", d.size)
+        .attr("fill", color)
+        .attr("stroke", "rgba(255, 255, 255, 0.25)");
+    }
   });
 
-  // Initial zoom to fit
-  setTimeout(()=>{
-    const bounds=g.node().getBBox();
-    const fullWidth=Math.max(bounds.width+100,100);
-    const fullHeight=Math.max(bounds.height+100,100);
-    const scale=Math.min(WIDTH/fullWidth,HEIGHT/fullHeight,1)*0.9;
-    svg.call(zoom.transform,d3.zoomIdentity.translate(WIDTH/2-bounds.x*scale,HEIGHT/2-bounds.y*scale).scale(scale));
-  },500);
+  // Labels
+  const labels = g.append("g").selectAll("text")
+    .data(nodes)
+    .join("text")
+    .attr("class", "node-label")
+    .attr("dx", d => d.size + 6)
+    .attr("dy", 4)
+    .text(d => d.label.length > 30 ? d.label.slice(0, 30) + "..." : d.label);
 
-}).catch(e=>{
-  document.getElementById("stats").innerHTML='<div class="stat" style="color:#ef4444">Error loading graph: '+e.message+'</div>';
-});
-</script></body></html>
+  // Dynamic visual highlighting on hover
+  node.on("mouseover", (e, d) => {
+    const connectedNodeIds = new Set([d.id]);
+    links.forEach(l => {
+      if (l.source.id === d.id) connectedNodeIds.add(l.target.id);
+      if (l.target.id === d.id) connectedNodeIds.add(l.source.id);
+    });
+
+    node.selectAll(".node").classed("fade", n => !connectedNodeIds.has(n.id));
+    labels.classed("fade", n => !connectedNodeIds.has(n.id));
+    link.classed("fade", l => l.source.id !== d.id && l.target.id !== d.id);
+    link.classed("highlighted", l => l.source.id === d.id || l.target.id === d.id);
+  });
+
+  node.on("mouseout", () => {
+    node.selectAll(".node").classed("fade", false);
+    labels.classed("fade", false);
+    link.classed("fade", false);
+    link.classed("highlighted", false);
+  });
+
+  // Clicking a node triggers the translucent detail panel
+  node.on("click", (e, d) => {
+    rightPanel.classList.add("active");
+    
+    // Set type color
+    const badge = document.getElementById("node-type-badge");
+    badge.innerText = groupNames[d.group] || d.group;
+    badge.style.background = colors[d.group] || "#888";
+    badge.style.color = "#fff";
+
+    document.getElementById("node-title").innerText = d.label;
+    
+    // Set 10-year-old child style explanation
+    const simpleDesc = document.getElementById("node-simple-explanation");
+    simpleDesc.innerHTML = d.simple_explanation || "No simple explanation generated.";
+
+    // Set description body
+    const desc = document.getElementById("node-description");
+    if (d.group === "bug" || d.group === "error") {
+      let bodyText = `Description:\n${d.raw.description || "No details available."}\n\n`;
+      if (d.raw.resolution) {
+        bodyText += `${d.raw.resolution}`;
+      }
+      desc.innerText = bodyText;
+      desc.classList.remove("code-view");
+    } else if (d.raw && d.raw.content) {
+      desc.innerText = d.raw.content;
+      if (d.group === "file" || d.group === "function") {
+        desc.classList.add("code-view");
+      } else {
+        desc.classList.remove("code-view");
+      }
+    } else {
+      desc.innerText = "No raw content stored. Click nodes to inspect files, functions, and memories.";
+      desc.classList.remove("code-view");
+    }
+
+    // List links
+    const connList = document.getElementById("node-connections-list");
+    const connectedLinks = links.filter(l => l.source.id === d.id || l.target.id === d.id);
+    if (connectedLinks.length > 0) {
+      connList.innerHTML = connectedLinks.map(l => {
+        const otherNode = l.source.id === d.id ? l.target : l.source;
+        return `<div>→ <strong>[${l.type}]</strong> ${otherNode.label.slice(0, 35)}...</div>`;
+      }).join("");
+    } else {
+      connList.innerHTML = "No connected pathways.";
+    }
+  });
+
+  simulation.on("tick", () => {
+    link.attr("x1", d => d.source.x)
+        .attr("y1", d => d.source.y)
+        .attr("x2", d => d.target.x)
+        .attr("y2", d => d.target.y);
+    node.attr("transform", d => `translate(${d.x},${d.y})`);
+    labels.attr("x", d => d.x).attr("y", d => d.y);
+  });
+
+  // Real-time search/filter
+  const searchInput = document.getElementById("search-input");
+  searchInput.oninput = () => {
+    const term = searchInput.value.toLowerCase().trim();
+    if (!term) {
+      node.selectAll(".node").classed("fade", false);
+      labels.classed("fade", false);
+      return;
+    }
+    node.selectAll(".node").classed("fade", n => !n.label.toLowerCase().includes(term) && !n.id.toLowerCase().includes(term));
+    labels.classed("fade", n => !n.label.toLowerCase().includes(term) && !n.id.toLowerCase().includes(term));
+  };
+
+  // Zoom to fit bounds on load
+  setTimeout(() => {
+    const bounds = g.node().getBBox();
+    const fullWidth = Math.max(bounds.width + 100, 100);
+    const fullHeight = Math.max(bounds.height + 100, 100);
+    const scale = Math.min(WIDTH / fullWidth, HEIGHT / fullHeight, 1) * 0.9;
+    svg.call(zoom.transform, d3.zoomIdentity.translate(WIDTH / 2 - bounds.x * scale, HEIGHT / 2 - bounds.y * scale).scale(scale));
+  }, 500);
+}
+
+// Load data either from inlined script or from fetch endpoint
+const INLINED_GRAPH_DATA = {"nodes":[{"id":"9d72979f5f3a3ab3","label":"Sundar Pichai is the CEO of Google in California","group":"observation","size":15,"raw":{"content":"Sundar Pichai is the CEO of Google in California","event_type":"observation","strength":1,"salience":0,"emotional_valence":0},"simple_explanation":"📝 <strong>The Diary Page</strong>: A simple observation or note recorded during a coding session."},{"id":"6a5fd3c19e38a00e","label":"Satya Nadella leads Microsoft in Redmond Washington","group":"observation","size":15,"raw":{"content":"Satya Nadella leads Microsoft in Redmond Washington","event_type":"observation","strength":1,"salience":0,"emotional_valence":0},"simple_explanation":"📝 <strong>The Diary Page</strong>: A simple observation or note recorded during a coding session."},{"id":"75a8b0cb599329cd","label":"Tim Cook is the CEO of Apple in Cupertino California","group":"observation","size":15,"raw":{"content":"Tim Cook is the CEO of Apple in Cupertino California","event_type":"observation","strength":1,"salience":0,"emotional_valence":0},"simple_explanation":"📝 <strong>The Diary Page</strong>: A simple observation or note recorded during a coding session."},{"id":"763095b6004ee0c5","label":"Elon Musk founded SpaceX and Tesla in Texas","group":"observation","size":15,"raw":{"content":"Elon Musk founded SpaceX and Tesla in Texas","event_type":"observation","strength":1,"salience":0,"emotional_valence":0},"simple_explanation":"📝 <strong>The Diary Page</strong>: A simple observation or note recorded during a coding session."},{"id":"0b5a50814540680a","label":"RBI raised the repo rate to 6.5 percent","group":"observation","size":15,"raw":{"content":"RBI raised the repo rate to 6.5 percent","event_type":"observation","strength":1,"salience":0,"emotional_valence":0},"simple_explanation":"📝 <strong>The Diary Page</strong>: A simple observation or note recorded during a coding session."}],"edges":[]};
+if (INLINED_GRAPH_DATA) {
+  renderGraph(INLINED_GRAPH_DATA);
+} else {
+  fetch("owl-memory://graph")
+    .then(r => r.json())
+    .then(data => renderGraph(data))
+    .catch(err => {
+      document.getElementById("stats").innerHTML = `<div style="color: var(--neon-red)">Error loading graph: ${err.message}</div>`;
+    });
+}
+</script>
+
+</body>
+</html>
