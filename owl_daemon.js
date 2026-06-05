@@ -369,13 +369,89 @@ function resetIdleTimer() {
       }
       db.prepare("INSERT INTO consolidation_log (started_at, completed_at, memories_processed, memories_merged, memories_pruned, status) VALUES (?, ?, ?, ?, 0, 'completed')")
         .run(now, now, processed, merged);
-      console.log(`[OWL DAEMON] Dream cycle completed: merged ${merged} memories.`);
-      triggerWindowsNotification("OWL Substrate", `Autonomic dream cycle finished. Merged ${merged} semantic links.`);
+      
+      const evo = evolveDatabaseSchema("default");
+      console.log(`[OWL DAEMON] Dream cycle completed: merged ${merged} memories. Schema evolution: ${JSON.stringify(evo)}`);
+      
+      const evolvedCount = evo.evolutions_count || 0;
+      triggerWindowsNotification("OWL Substrate", `Autonomic dream cycle finished. Merged ${merged} semantic links. Evolved columns: ${evolvedCount}`);
     } catch (err) {
       console.error("[OWL DAEMON] Dream cycle failed:", err.message);
     }
     resetIdleTimer();
   }, 5 * 60 * 1000); // 5 minutes
+}
+
+function evolveDatabaseSchema(projectId) {
+  const now = new Date().toISOString();
+  const evolutions = [];
+  
+  try {
+    const memories = db.prepare("SELECT metadata FROM episodic_memories WHERE project = ? AND is_active = 1").all(projectId);
+    if (memories.length < 5) {
+      return { status: "no_evolution_threshold_under_minimum", count: memories.length };
+    }
+
+    const keyCounts = {};
+    let totalWithMetadata = 0;
+    
+    for (const mem of memories) {
+      if (!mem.metadata) continue;
+      try {
+        const meta = JSON.parse(mem.metadata);
+        if (meta && typeof meta === "object") {
+          totalWithMetadata++;
+          for (const key of Object.keys(meta)) {
+            keyCounts[key] = (keyCounts[key] || 0) + 1;
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (totalWithMetadata < 3) {
+      return { status: "insufficient_metadata_records", count: totalWithMetadata };
+    }
+
+    const tableInfo = db.prepare("PRAGMA table_info(episodic_memories)").all();
+    const existingColumns = new Set(tableInfo.map(col => col.name.toLowerCase()));
+
+    const candidates = [];
+    const threshold = memories.length * 0.40;
+    
+    for (const [key, count] of Object.entries(keyCounts)) {
+      if (count > threshold) {
+        if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) && key.length <= 30) {
+          if (!existingColumns.has(key.toLowerCase())) {
+            candidates.push(key);
+          }
+        }
+      }
+    }
+
+    for (const key of candidates) {
+      console.log(`[OWL DAEMON] Evolving schema: adding column [${key}] to episodic_memories`);
+      db.prepare(`ALTER TABLE episodic_memories ADD COLUMN ${key} TEXT`).run();
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_episodic_memories_${key} ON episodic_memories(${key})`).run();
+      db.prepare(`
+        UPDATE episodic_memories 
+        SET ${key} = json_extract(metadata, '$.${key}') 
+        WHERE json_extract(metadata, '$.${key}') IS NOT NULL
+      `).run();
+      
+      db.prepare(`
+        INSERT INTO schema_evolution_log (evolved_column, source_metadata_key, applied_at)
+        VALUES (?, ?, ?)
+      `).run(key, key, now);
+      
+      evolutions.push({ column: key, source_key: key, status: "evolved" });
+    }
+
+    return { status: "completed", evolutions_count: evolutions.length, evolutions };
+
+  } catch (err) {
+    console.error(`[OWL DAEMON] Schema evolution failed: ${err.message}`);
+    return { status: "failed", error: err.message };
+  }
 }
 
 // ─── File Watcher loop ───────────────────────────────────────────────────────

@@ -283,6 +283,13 @@ db.exec(`
     last_transition TEXT NOT NULL,
     PRIMARY KEY(source_id, target_id)
   );
+
+  CREATE TABLE IF NOT EXISTS schema_evolution_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    evolved_column TEXT NOT NULL,
+    source_metadata_key TEXT NOT NULL,
+    applied_at TEXT NOT NULL
+  );
 `);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -823,6 +830,78 @@ function consolidateMemories(projectId) {
   return { processed, merged, pruned };
 }
 
+function evolveDatabaseSchema(projectId) {
+  const now = new Date().toISOString();
+  const evolutions = [];
+  
+  try {
+    const memories = db.prepare("SELECT metadata FROM episodic_memories WHERE project = ? AND is_active = 1").all(projectId);
+    if (memories.length < 5) {
+      return { status: "no_evolution_threshold_under_minimum", count: memories.length };
+    }
+
+    const keyCounts = {};
+    let totalWithMetadata = 0;
+    
+    for (const mem of memories) {
+      if (!mem.metadata) continue;
+      try {
+        const meta = JSON.parse(mem.metadata);
+        if (meta && typeof meta === "object") {
+          totalWithMetadata++;
+          for (const key of Object.keys(meta)) {
+            keyCounts[key] = (keyCounts[key] || 0) + 1;
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (totalWithMetadata < 3) {
+      return { status: "insufficient_metadata_records", count: totalWithMetadata };
+    }
+
+    const tableInfo = db.prepare("PRAGMA table_info(episodic_memories)").all();
+    const existingColumns = new Set(tableInfo.map(col => col.name.toLowerCase()));
+
+    const candidates = [];
+    const threshold = memories.length * 0.40;
+    
+    for (const [key, count] of Object.entries(keyCounts)) {
+      if (count > threshold) {
+        if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) && key.length <= 30) {
+          if (!existingColumns.has(key.toLowerCase())) {
+            candidates.push(key);
+          }
+        }
+      }
+    }
+
+    for (const key of candidates) {
+      console.error(`[OWL SERVER] Evolving schema: adding column [${key}] to episodic_memories`);
+      db.prepare(`ALTER TABLE episodic_memories ADD COLUMN ${key} TEXT`).run();
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_episodic_memories_${key} ON episodic_memories(${key})`).run();
+      db.prepare(`
+        UPDATE episodic_memories 
+        SET ${key} = json_extract(metadata, '$.${key}') 
+        WHERE json_extract(metadata, '$.${key}') IS NOT NULL
+      `).run();
+      
+      db.prepare(`
+        INSERT INTO schema_evolution_log (evolved_column, source_metadata_key, applied_at)
+        VALUES (?, ?, ?)
+      `).run(key, key, now);
+      
+      evolutions.push({ column: key, source_key: key, status: "evolved" });
+    }
+
+    return { status: "completed", evolutions_count: evolutions.length, evolutions };
+
+  } catch (err) {
+    console.error(`[OWL SERVER] Schema evolution failed: ${err.message}`);
+    return { status: "failed", error: err.message };
+  }
+}
+
 // ─── MCP Server Setup ────────────────────────────────────────────────────────
 const server = new Server(
   { name: "owl-memory", version: "5.0.0" },
@@ -1120,7 +1199,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       if (action === "dream") {
         const rep = consolidateMemories(projectId);
         const sim = runAutonomicDreamSimulation(projectId);
-        return { content: [{ type: "text", text: JSON.stringify({ status: "dream_cycle_completed", report: rep, simulation: sim }) }] };
+        const evo = evolveDatabaseSchema(projectId);
+        return { content: [{ type: "text", text: JSON.stringify({ status: "dream_cycle_completed", report: rep, simulation: sim, schema_evolution: evo }) }] };
       }
     }
 
