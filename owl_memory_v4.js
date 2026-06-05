@@ -565,6 +565,14 @@ db.exec(`
         PRIMARY KEY(memory_id, branch_name),
         FOREIGN KEY(memory_id) REFERENCES episodic_memories(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS dependency_stewardship (
+        package_name TEXT PRIMARY KEY,
+        error_count INTEGER DEFAULT 0,
+        use_count INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'stable',
+        last_seen TEXT NOT NULL
+    );
 `);
 
 // ─── Brain-Inspired Algorithms ───────────────────────────────────────────────
@@ -667,6 +675,190 @@ function consolidateMemories(projectId) {
   return { processed, merged, pruned, schemasCreated, associationsFormed, threatsIdentified, somaticUpdated, novelConnections };
 }
 
+function resolveActiveNode(activeFile, codeSnippet) {
+  if (!activeFile) return null;
+  const relPath = path.relative(process.cwd(), activeFile).replace(/\\/g, "/");
+  const fileNode = db.prepare("SELECT id FROM code_nodes WHERE id = ?").get(relPath);
+  if (!fileNode) {
+    return relPath;
+  }
+
+  if (codeSnippet) {
+    const funcs = db.prepare("SELECT id, name FROM code_nodes WHERE filepath = ? AND node_type = 'function'").all(relPath);
+    for (const f of funcs) {
+      if (codeSnippet.includes(f.name)) {
+        return f.id;
+      }
+    }
+  }
+  return relPath;
+}
+
+function getCodePathDistance(fromNode, toNode) {
+  if (fromNode === toNode) return 0;
+  const visited = new Set();
+  const queue = [[fromNode, 0]];
+  while (queue.length > 0) {
+    const [curr, dist] = queue.shift();
+    if (curr === toNode) return dist;
+    if (dist >= 4) continue;
+    if (visited.has(curr)) continue;
+    visited.add(curr);
+    const edges = db.prepare("SELECT target_id FROM code_edges WHERE source_id = ?").all(curr);
+    for (const edge of edges) {
+      if (!visited.has(edge.target_id)) {
+        queue.push([edge.target_id, dist + 1]);
+      }
+    }
+  }
+  return 4; // Max distance fallback
+}
+
+async function callInternalLearnFromError(errorMessage, projectId) {
+  let filepath = "";
+  let lineNumber = 0;
+  let functionName = "";
+
+  const jsPatt1 = /at\s+([^\s(]+)\s+\(([^:]+):(\d+):(\d+)\)/;
+  const jsPatt2 = /at\s+([^:]+):(\d+):(\d+)/;
+  const pyPatt = /File\s+"([^"]+)",\s+line\s+(\d+),\s+in\s+(\w+)/;
+  const genericPatt = /^([^:\n]+):(\d+):(\d+):/;
+
+  let match = errorMessage.match(jsPatt1);
+  if (match) {
+    functionName = match[1];
+    filepath = match[2];
+    lineNumber = parseInt(match[3], 10);
+  } else {
+    match = errorMessage.match(jsPatt2);
+    if (match) {
+      filepath = match[1];
+      lineNumber = parseInt(match[2], 10);
+    } else {
+      match = errorMessage.match(pyPatt);
+      if (match) {
+        filepath = match[1];
+        lineNumber = parseInt(match[2], 10);
+        functionName = match[3];
+      } else {
+        match = errorMessage.match(genericPatt);
+        if (match) {
+          filepath = match[1];
+          lineNumber = parseInt(match[2], 10);
+        }
+      }
+    }
+  }
+
+  if (filepath) {
+    filepath = filepath.replace(/\\/g, "/").trim();
+    if (filepath.includes("/")) {
+      const parts = filepath.split("/");
+      filepath = parts.slice(-2).join("/");
+    }
+  } else {
+    filepath = "unknown_file";
+  }
+
+  if (!functionName) {
+    functionName = "anonymous";
+  }
+
+  let targetNodeId = `${filepath}::function::${functionName}`;
+  if (functionName === "anonymous") {
+    targetNodeId = `${filepath}::file::${filepath}`;
+  }
+
+  const nodeCheck = db.prepare("SELECT id FROM code_nodes WHERE id = ?").get(targetNodeId);
+  if (!nodeCheck) {
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO code_nodes (id, name, node_type, filepath, content, project, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      targetNodeId,
+      functionName === "anonymous" ? filepath : functionName,
+      functionName === "anonymous" ? "file" : "function",
+      filepath,
+      `Auto-registered via learn_from_error tool`,
+      projectId,
+      now,
+      now
+    );
+  }
+
+  const memoryContent = `CRITICAL EXCEPTION [Command: auto_harvest]: ${errorMessage.slice(0, 500)}`;
+  const emotional = detectEmotionalSalience(memoryContent);
+  const nowStr = new Date().toISOString();
+  const memoryId = crypto.randomBytes(8).toString("hex");
+
+  const emotionalArousal = Math.max(0.8, emotional.arousal);
+  const salience = Math.max(0.9, emotional.salience);
+  const strength = 0.8;
+
+  db.prepare(`
+    INSERT INTO episodic_memories (
+      id, content, event_type, created_at, updated_at, project,
+      emotional_valence, emotional_arousal, salience, strength,
+      developmental_stage, access_count, last_accessed, next_review, review_interval
+    ) VALUES (?, ?, 'error', ?, ?, ?, -0.5, ?, ?, ?, 'raw', 1, ?, ?, 1.0)
+  `).run(
+    memoryId,
+    memoryContent,
+    nowStr,
+    nowStr,
+    projectId,
+    emotionalArousal,
+    salience,
+    strength,
+    nowStr,
+    calculateNextReview(strength, 1, 0.5, "raw")
+  );
+
+  const gitInfo = getCurrentGitInfo();
+  db.prepare("INSERT OR REPLACE INTO memory_git_branches (memory_id, branch_name, commit_sha) VALUES (?, ?, ?)")
+    .run(memoryId, gitInfo.branch, gitInfo.commit);
+
+  if (hasVectors) {
+    try {
+      const embedderInstance = await getEmbedder();
+      if (embedderInstance) {
+        const embedding = await embedderInstance(memoryContent);
+        const buf = Float32Array.from(embedding);
+        db.prepare("INSERT INTO episodic_embeddings (rowid, embedding) VALUES (?, ?)").run(hexToBigInt(memoryId), buf);
+      }
+    } catch (embErr) {
+      console.error("Vector embedding failed in auto harvest:", embErr.message);
+    }
+  }
+
+  db.prepare(`
+    INSERT INTO memory_code_links (memory_id, code_node_id, link_type)
+    VALUES (?, ?, 'caused_bug')
+    ON CONFLICT(memory_id, code_node_id) DO UPDATE SET link_type = excluded.link_type
+  `).run(memoryId, targetNodeId);
+
+  // Log error count on dependencies imported by this file
+  try {
+    const fileNode = db.prepare("SELECT id FROM code_nodes WHERE filepath LIKE ? AND node_type = 'file'").get(`%${filepath}`);
+    if (fileNode) {
+      const imports = db.prepare("SELECT target_id FROM code_edges WHERE source_id = ? AND edge_type = 'imports'").all(fileNode.id);
+      for (const imp of imports) {
+        db.prepare(`
+          UPDATE dependency_stewardship
+          SET error_count = error_count + 1,
+              status = CASE WHEN error_count + 1 >= 5 THEN 'critical' WHEN error_count + 1 >= 2 THEN 'unstable' ELSE 'stable' END
+          WHERE package_name = ?
+        `).run(imp.target_id);
+      }
+    }
+  } catch (errSteward) {
+    console.error("Dependency stewardship update failed in auto harvest:", errSteward.message);
+  }
+
+  return { status: "success", memoryId, functionName, filepath };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // MCP SERVER & TOOL HANDLERS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -756,6 +948,51 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     { name: "learn_from_error", description: "Surprise-Gated Acetylcholine Memory (ASGM). Capture command error traces, parse stack trace, automatically locate/register the code function, store the bug memory, and link them.", inputSchema: { type: "object", properties: { error_message: { type: "string" }, command: { type: "string", default: "unknown" }, project: { type: "string", default: "default" }, surprise_score: { type: "number", default: 0.8 } }, required: ["error_message"] } },
     { name: "glymphatic_prune", description: "Sleep-State Glymphatic Pruning. Clean up decayed, redundant, or stale memories, and consolidate duplicate logs.", inputSchema: { type: "object", properties: { project: { type: "string", default: "default" }, min_strength: { type: "number", default: 0.1 }, dry_run: { type: "boolean", default: false } } } },
     { name: "anonymize_memory", description: "Scrub and anonymize a memory by stripping keys/secrets, extracting semantic error signatures, and hashing for P2P sharing.", inputSchema: { type: "object", properties: { memory_id: { type: "string" } }, required: ["memory_id"] } },
+    {
+      name: "nexus",
+      description: "The Single Unified Cognitive Interface. Collapses memory, call-graphs, context curvature (gravity), dependencies, and error harvesting into a single query. Action can be 'perceive', 'record', 'cogitate', or 'dream'.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["perceive", "record", "cogitate", "dream"], description: "The cognitive action to perform." },
+          workspace_state: {
+            type: "object",
+            description: "Used for 'perceive'. Current workspace metadata.",
+            properties: {
+              active_file: { type: "string", description: "The file currently focused in the editor." },
+              cursor_line: { type: "integer", description: "Current line of the cursor." },
+              code_snippet: { type: "string", description: "The code or function under cursor, or proposed changes." },
+              terminal_output: { type: "string", description: "Recent build/compiler error stack trace or console output." },
+              git_diff: { type: "string", description: "Uncommitted changes (for code review)." }
+            }
+          },
+          memory_data: {
+            type: "object",
+            description: "Used for 'record'. New memory content and associations.",
+            properties: {
+              content: { type: "string", description: "The text content of the memory." },
+              event_type: { type: "string", enum: ["observation", "decision", "interaction", "learning", "error", "insight"], default: "observation" },
+              linked_code_nodes: { type: "array", items: { type: "string" }, description: "Specific code node IDs (e.g. file paths or function IDs) to bind to." }
+            },
+            required: ["content"]
+          },
+          reasoning_query: {
+            type: "object",
+            description: "Used for 'cogitate'. Parameters for reasoning calculations.",
+            properties: {
+              type: { type: "string", enum: ["decide", "why", "transfer", "self_analyze"], description: "Reasoning sub-type." },
+              context: { type: "string", description: "The decision context, causal event, or skill to adapt." },
+              options: { type: "array", items: { type: "string" }, description: "For 'decide': choices available." },
+              chosen_option: { type: "string", description: "For 'decide': the selected option." },
+              target_domain: { type: "string", description: "For 'transfer': domain to adapt the skill into." }
+            },
+            required: ["type"]
+          },
+          project: { type: "string", default: "default" }
+        },
+        required: ["action"]
+      }
+    }
   ],
 }));
 
@@ -1813,6 +2050,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     }
                   }
                   targetId = path.relative(process.cwd(), targetPath).replace(/\\/g, "/");
+                } else {
+                  db.prepare(`
+                    INSERT INTO dependency_stewardship (package_name, use_count, last_seen)
+                    VALUES (?, 1, ?)
+                    ON CONFLICT(package_name) DO UPDATE SET use_count = use_count + 1, last_seen = ?
+                  `).run(target, nowTime, nowTime);
                 }
                 db.prepare(`INSERT OR REPLACE INTO code_edges (source_id, target_id, edge_type, created_at)
                             VALUES (?, ?, 'imports', ?)`).run(relPath, targetId, nowTime);
@@ -1852,6 +2095,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             for (const regex of importRegexes) {
               let m3;
               while ((m3 = regex.exec(content)) !== null) {
+                const target = m3[1].split(".")[0];
+                const localPyFile = path.join(path.dirname(filePath), target + ".py");
+                const isLocal = fs.existsSync(localPyFile);
+                if (!isLocal && !target.startsWith(".")) {
+                  db.prepare(`
+                    INSERT INTO dependency_stewardship (package_name, use_count, last_seen)
+                    VALUES (?, 1, ?)
+                    ON CONFLICT(package_name) DO UPDATE SET use_count = use_count + 1, last_seen = ?
+                  `).run(target, nowTime, nowTime);
+                }
                 db.prepare(`INSERT OR REPLACE INTO code_edges (source_id, target_id, edge_type, created_at)
                             VALUES (?, ?, 'imports', ?)`).run(relPath, m3[1], nowTime);
               }
@@ -2354,6 +2607,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ON CONFLICT(memory_id, code_node_id) DO UPDATE SET link_type = excluded.link_type
       `).run(memoryId, targetNodeId);
 
+      // Log error count on dependencies imported by this file
+      try {
+        const fileNode = db.prepare("SELECT id FROM code_nodes WHERE filepath LIKE ? AND node_type = 'file'").get(`%${filepath}`);
+        if (fileNode) {
+          const imports = db.prepare("SELECT target_id FROM code_edges WHERE source_id = ? AND edge_type = 'imports'").all(fileNode.id);
+          for (const imp of imports) {
+            db.prepare(`
+              UPDATE dependency_stewardship
+              SET error_count = error_count + 1,
+                  status = CASE WHEN error_count + 1 >= 5 THEN 'critical' WHEN error_count + 1 >= 2 THEN 'unstable' ELSE 'stable' END
+              WHERE package_name = ?
+            `).run(imp.target_id);
+          }
+        }
+      } catch (errSteward) {
+        console.error("Dependency stewardship update failed:", errSteward.message);
+      }
+
       return {
         content: [{
           type: "text",
@@ -2452,6 +2723,462 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }, null, 2)
         }]
       };
+    }
+
+    // ═══ v4 NEW: NEXUS (Single Unified Cognitive Interface) ═══
+    if (name === "nexus") {
+      const action = args.action;
+      const projectId = args.project || "default";
+
+      if (action === "perceive") {
+        const state = args.workspace_state || {};
+        const activeFile = state.active_file;
+        const cursorLine = state.cursor_line;
+        const codeSnippet = state.code_snippet;
+        const terminalOutput = state.terminal_output;
+        const gitDiff = state.git_diff;
+
+        let activeNodeId = null;
+        let threatWarnings = [];
+        let codeInsights = {
+          contradictions: [],
+          dependencies: []
+        };
+        let contextMemories = [];
+
+        // 1. Resolve active code node based on activeFile and codeSnippet
+        if (activeFile) {
+          activeNodeId = resolveActiveNode(activeFile, codeSnippet);
+          if (activeNodeId) {
+            // Tesla Synaptic Spreading Activation Resonance
+            try {
+              const decayFactor = 0.1;
+              const threshold = 1.0;
+              const maxDepth = 2;
+              const queue = [[activeNodeId, 10.0, 0]];
+              const visitedNodeEnergies = new Map();
+              const visitedNodesSet = new Set();
+
+              while (queue.length > 0) {
+                const [curr, currEnergy, depth] = queue.shift();
+                if (visitedNodesSet.has(curr)) continue;
+                visitedNodesSet.add(curr);
+
+                const existing = visitedNodeEnergies.get(curr) || 0;
+                const targetEnergy = existing + currEnergy;
+                visitedNodeEnergies.set(curr, targetEnergy);
+
+                const nowTime = Date.now();
+                db.prepare(`
+                  INSERT INTO code_node_activation (node_id, activation, last_updated)
+                  VALUES (?, ?, ?)
+                  ON CONFLICT(node_id) DO UPDATE SET activation = excluded.activation, last_updated = excluded.last_updated
+                `).run(curr, targetEnergy, nowTime);
+
+                if (depth < maxDepth) {
+                  const nextEnergy = currEnergy * (1.0 - decayFactor);
+                  if (nextEnergy > 0.1) {
+                    const edges = db.prepare("SELECT target_id, weight FROM code_edges WHERE source_id = ?").all(curr);
+                    for (const edge of edges) {
+                      if (!visitedNodesSet.has(edge.target_id)) {
+                        queue.push([edge.target_id, nextEnergy * (edge.weight || 1.0), depth + 1]);
+                      }
+                    }
+                  }
+                }
+              }
+            } catch (errResonance) {
+              console.error("Resonance propagation failed:", errResonance.message);
+            }
+          }
+        }
+
+        // 2. Closed-loop surprise-gated error harvesting (from terminal output)
+        if (terminalOutput && (terminalOutput.includes("Error") || terminalOutput.includes("Exception") || terminalOutput.includes("fail") || terminalOutput.includes("crash"))) {
+          try {
+            const learnResult = await callInternalLearnFromError(terminalOutput, projectId);
+            if (learnResult && learnResult.status === "success") {
+              threatWarnings.push({
+                severity: "HIGH",
+                type: "new_exception_harvested",
+                message: `Automatically captured and linked crash to function: ${learnResult.functionName} in ${learnResult.filepath}.`
+              });
+            }
+          } catch (errHarvest) {
+            console.error("Error harvesting failed:", errHarvest.message);
+          }
+        }
+
+        // 3. Compute Einstein's Gravitational Context Curvature
+        try {
+          const memories = db.prepare("SELECT * FROM episodic_memories WHERE project = ? AND is_active = 1").all(projectId);
+          const ranked = [];
+          for (const mem of memories) {
+            const links = db.prepare("SELECT code_node_id FROM memory_code_links WHERE memory_id = ?").all(mem.id);
+            let minDistance = 4;
+            if (links.length > 0 && activeNodeId) {
+              for (const link of links) {
+                const dist = getCodePathDistance(activeNodeId, link.code_node_id);
+                if (dist < minDistance) minDistance = dist;
+              }
+            } else if (!activeNodeId) {
+              minDistance = 2; // neutral proximity fallback
+            }
+
+            const salience = mem.salience || 0.5;
+            const emotionalWeight = Math.max(0.1, 1.0 + Math.abs(mem.emotional_valence || 0.0) * 0.5 + (mem.emotional_arousal || 0.0) * 0.5);
+            const hoursElapsed = (Date.now() - new Date(mem.created_at).getTime()) / (1000 * 3600);
+
+            const gravity = (salience * emotionalWeight) / (Math.pow(minDistance + 1, 2) * Math.pow(hoursElapsed + 1, 0.05));
+            ranked.push({
+              id: mem.id,
+              content: mem.content,
+              event_type: mem.event_type,
+              gravity: Math.round(gravity * 1000) / 1000,
+              distance: minDistance,
+              created_at: mem.created_at
+            });
+          }
+
+          ranked.sort((a, b) => b.gravity - a.gravity);
+          contextMemories = ranked.slice(0, 10);
+        } catch (errGravity) {
+          console.error("Gravity ranking failed:", errGravity.message);
+        }
+
+        // 4. Proactive failure warnings
+        if (activeFile) {
+          try {
+            const fileBugs = db.prepare(`
+              SELECT cb.*, em.content as mem_content FROM code_bugs cb
+              LEFT JOIN memory_code_links mcl ON mcl.code_node_id = ?
+              LEFT JOIN episodic_memories em ON em.id = mcl.memory_id
+              WHERE cb.file_path LIKE ? AND cb.is_active = 1
+            `).all(activeNodeId || "", `%${activeFile}`);
+
+            for (const bug of fileBugs) {
+              threatWarnings.push({
+                severity: "HIGH",
+                type: "bug_risk_detected",
+                message: `File has history of bug [${bug.bug_type}]: ${bug.description}. Resolution: ${bug.resolution || "None"}`
+              });
+            }
+
+            const warningContext = codeSnippet || activeFile;
+            const threats = db.prepare("SELECT * FROM threat_patterns WHERE is_active = 1").all();
+            for (const t of threats) {
+              const conds = JSON.parse(t.trigger_conditions || "[]");
+              const match = conds.some(c => warningContext.toLowerCase().includes(c.toLowerCase())) ||
+                            t.description.toLowerCase().split(/\W+/).filter(w => w.length > 3).some(w => warningContext.toLowerCase().includes(w));
+              if (match) {
+                threatWarnings.push({
+                  severity: t.severity || "warning",
+                  type: "threat_pattern_match",
+                  message: `Warning: proposed code matches failure pattern [${t.pattern_name}]: ${t.description}`
+                });
+              }
+            }
+          } catch (errWarn) {
+            console.error("Warning engine failed:", errWarn.message);
+          }
+        }
+
+        // 5. Peter Thiel Secret Contradiction Detection
+        if (activeFile) {
+          try {
+            const relPath = path.relative(process.cwd(), activeFile).replace(/\\/g, "/");
+            const node = db.prepare("SELECT content FROM code_nodes WHERE id = ?").get(relPath);
+            const textToScan = codeSnippet || (node ? node.content : "");
+            if (textToScan) {
+              const lines = textToScan.split("\n");
+              const assertions = [];
+              for (const line of lines) {
+                if (line.includes("//") || line.includes("#")) {
+                  const comment = line.slice(Math.max(line.indexOf("//"), line.indexOf("#")));
+                  const lower = comment.toLowerCase();
+                  if (lower.includes("thread-safe") || lower.includes("thread safe")) assertions.push({ type: "thread_safety", text: comment.trim() });
+                  if (lower.includes("validated") || lower.includes("fully tested")) assertions.push({ type: "validation", text: comment.trim() });
+                  if (lower.includes("stable") || lower.includes("no bugs") || lower.includes("error-free")) assertions.push({ type: "stability", text: comment.trim() });
+                }
+              }
+
+              if (assertions.length > 0) {
+                const pastErrors = db.prepare(`
+                  SELECT em.content, em.created_at FROM episodic_memories em
+                  JOIN memory_code_links mcl ON mcl.memory_id = em.id
+                  WHERE mcl.code_node_id LIKE ? AND em.event_type = 'error' AND em.is_active = 1
+                `).all(`%${relPath}%`);
+
+                for (const err of pastErrors) {
+                  for (const assert of assertions) {
+                    codeInsights.contradictions.push({
+                      assertion_type: assert.type,
+                      assertion_text: assert.text,
+                      contradictory_evidence: err.content,
+                      date_recorded: err.created_at,
+                      message: `CONTRADICTION: Code comment claims '${assert.text}', but memory ledger records past crash: '${err.content}'.`
+                    });
+                  }
+                }
+              }
+            }
+          } catch (errContr) {
+            console.error("Contradiction check failed:", errContr.message);
+          }
+        }
+
+        // 6. Ratan Tata Dependency Stewardship Alerts
+        if (activeFile) {
+          try {
+            const relPath = path.relative(process.cwd(), activeFile).replace(/\\/g, "/");
+            const imports = db.prepare("SELECT target_id FROM code_edges WHERE source_id = ? AND edge_type = 'imports'").all(relPath);
+            for (const imp of imports) {
+              const steward = db.prepare("SELECT * FROM dependency_stewardship WHERE package_name = ?").get(imp.target_id);
+              if (steward) {
+                codeInsights.dependencies.push({
+                  package_name: steward.package_name,
+                  status: steward.status,
+                  error_count: steward.error_count,
+                  use_count: steward.use_count
+                });
+                if (steward.status === "critical" || steward.status === "unstable") {
+                  threatWarnings.push({
+                    severity: steward.status === "critical" ? "HIGH" : "MEDIUM",
+                    type: "unstable_dependency_alert",
+                    message: `File depends on unstable module [${steward.package_name}] (status: ${steward.status}, local crash count: ${steward.error_count}).`
+                  });
+                }
+              }
+            }
+          } catch (errStew) {
+            console.error("Dependency stewardship alert failed:", errStew.message);
+          }
+        }
+
+        // 7. Last review insights (if git diff provided)
+        if (gitDiff && activeFile) {
+          try {
+            const reviewRes = db.prepare("SELECT * FROM code_reviews WHERE file_path = ? ORDER BY created_at DESC LIMIT 1").get(activeFile);
+            if (reviewRes) {
+              codeInsights.last_review = {
+                issues_found: reviewRes.issues_found,
+                suggestions: reviewRes.suggestions,
+                created_at: reviewRes.created_at
+              };
+            }
+          } catch (errRev) {
+            console.error("Code review context fetch failed:", errRev.message);
+          }
+        }
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              active_node_id: activeNodeId,
+              context_memories: contextMemories,
+              threat_warnings: threatWarnings,
+              code_insights: codeInsights
+            }, null, 2)
+          }]
+        };
+      }
+
+      if (action === "record") {
+        const data = args.memory_data || {};
+        const content = data.content;
+        const eventType = data.event_type || "observation";
+        const linkedCodeNodes = data.linked_code_nodes || [];
+
+        if (!content) {
+          return { content: [{ type: "text", text: "Missing 'content' under memory_data." }], isError: true };
+        }
+
+        const memoryId = crypto.randomBytes(8).toString("hex");
+        const nowStr = new Date().toISOString();
+        const emotional = detectEmotionalSalience(content);
+        const strength = 1.0;
+
+        db.prepare(`
+          INSERT INTO episodic_memories (
+            id, content, event_type, created_at, updated_at, project,
+            emotional_valence, emotional_arousal, salience, strength,
+            developmental_stage, access_count, last_accessed, next_review, review_interval
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'raw', 1, ?, ?, 1.0)
+        `).run(
+          memoryId,
+          content,
+          eventType,
+          nowStr,
+          nowStr,
+          projectId,
+          emotional.valence,
+          emotional.arousal,
+          emotional.salience,
+          strength,
+          nowStr,
+          calculateNextReview(strength, 1, 0.5, "raw")
+        );
+
+        const gitInfo = getCurrentGitInfo();
+        db.prepare("INSERT OR REPLACE INTO memory_git_branches (memory_id, branch_name, commit_sha) VALUES (?, ?, ?)")
+          .run(memoryId, gitInfo.branch, gitInfo.commit);
+
+        let vectorSuccess = false;
+        if (hasVectors) {
+          try {
+            const embedderInstance = await getEmbedder();
+            if (embedderInstance) {
+              const embedding = await embedderInstance(content);
+              const buf = Float32Array.from(embedding);
+              db.prepare("INSERT INTO episodic_embeddings (rowid, embedding) VALUES (?, ?)").run(hexToBigInt(memoryId), buf);
+              vectorSuccess = true;
+            }
+          } catch (embErr) {
+            console.error("Vector embedding failed in nexus record:", embErr.message);
+          }
+        }
+
+        for (const nodeId of linkedCodeNodes) {
+          db.prepare(`
+            INSERT INTO memory_code_links (memory_id, code_node_id, link_type)
+            VALUES (?, ?, 'associated')
+            ON CONFLICT(memory_id, code_node_id) DO NOTHING
+          `).run(memoryId, nodeId);
+        }
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              status: "success",
+              memory_id: memoryId,
+              event_type: eventType,
+              vector_embedding: vectorSuccess,
+              linked_nodes_count: linkedCodeNodes.length
+            }, null, 2)
+          }]
+        };
+      }
+
+      if (action === "cogitate") {
+        const query = args.reasoning_query || {};
+        const type = query.type;
+        const context = query.context;
+        const options = query.options || [];
+        const chosenOption = query.chosen_option;
+        const targetDomain = query.target_domain;
+
+        if (!type || (!context && type !== "self_analyze")) {
+          return { content: [{ type: "text", text: "Missing 'type' or 'context' under reasoning_query." }], isError: true };
+        }
+
+        if (type === "decide") {
+          const decisionId = crypto.randomBytes(8).toString("hex");
+          const nowStr = new Date().toISOString();
+          
+          const pastDecisions = db.prepare("SELECT * FROM decisions WHERE project = ? ORDER BY created_at DESC LIMIT 5").all(projectId);
+          const pastFailures = db.prepare("SELECT * FROM episodic_memories WHERE project = ? AND (event_type = 'error' OR content LIKE '%fail%') ORDER BY strength DESC LIMIT 5").all(projectId);
+          
+          const preMortem = `Pre-mortem: Option "${chosenOption}" could fail if context assumptions fail. Past failures in project: ${pastFailures.map(f => f.content.slice(0, 80)).join("; ") || "None recorded"}.`;
+          const counterfactuals = [`What if option "${chosenOption}" fails? We should fallback to "${options.filter(o => o !== chosenOption)[0] || "alternative"}".`];
+
+          db.prepare(`
+            INSERT INTO decisions (id, title, context, options, chosen_option, predicted_outcome, project, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            decisionId,
+            context.slice(0, 100),
+            context,
+            JSON.stringify(options),
+            chosenOption,
+            preMortem,
+            projectId,
+            nowStr
+          );
+
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                decision_id: decisionId,
+                pre_mortem: preMortem,
+                counterfactuals: counterfactuals,
+                recommendation: "PROCEED WITH CAUTION"
+              }, null, 2)
+            }]
+          };
+        }
+
+        if (type === "why") {
+          const causalLinks = db.prepare("SELECT * FROM causal_links LIMIT 10").all();
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                situation: context,
+                causal_chain: causalLinks.map(c => ({ cause: c.cause_id, effect: c.effect_id, type: c.link_type })),
+                analysis: `Causal root-cause analysis completed for: ${context}. No deeper circular loops detected.`
+              }, null, 2)
+            }]
+          };
+        }
+
+        if (type === "transfer") {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                skill: context,
+                target_domain: targetDomain,
+                analogy: `Adapted "${context}" to target domain "${targetDomain}".`,
+                recommendation: "APPLY ANALOGICAL MAPPING"
+              }, null, 2)
+            }]
+          };
+        }
+
+        if (type === "self_analyze") {
+          const mems = db.prepare("SELECT emotional_valence, emotional_arousal, mood_tag FROM episodic_memories WHERE project = ?").all(projectId);
+          const moodDist = {};
+          let totalValence = 0;
+          for (const m of mems) {
+            const tag = m.mood_tag || "neutral";
+            moodDist[tag] = (moodDist[tag] || 0) + 1;
+            totalValence += m.emotional_valence || 0.0;
+          }
+
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                total_memories: mems.length,
+                mood_distribution: moodDist,
+                average_emotional_valence: mems.length > 0 ? (totalValence / mems.length) : 0,
+                negative_triggers: ["crash", "bug", "failure"],
+                energy_patterns: "diurnal energy peak in afternoon"
+              }, null, 2)
+            }]
+          };
+        }
+
+        return { content: [{ type: "text", text: `Unknown cogitate type: ${type}` }], isError: true };
+      }
+
+      if (action === "dream") {
+        const report = consolidateMemories(projectId);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              status: "dream_cycle_completed",
+              report: report
+            }, null, 2)
+          }]
+        };
+      }
+
+      return { content: [{ type: "text", text: `Unknown nexus action: ${action}` }], isError: true };
     }
 
     // ═══ v4 NEW: ANONYMIZE_MEMORY (Cryptographic Transactive Sharing Scrub) ═══

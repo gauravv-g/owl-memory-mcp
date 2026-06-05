@@ -2,7 +2,7 @@
   "name": "hermes-custom-mcps",
   "version": "1.0.0",
   "description": "",
-  "main": "owl_memory.js",
+  "main": "owl_memory_v4.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
