@@ -518,50 +518,92 @@ function getCodePathDistance(fromNode, toNode) {
 }
 
 // ─── 2. NIKOLA TESLA: SYNAPTIC GRAPH RESONANCE (Energy Wave) ────────────────
-function propagateTeslaResonance(activeNodeId, energy = 10.0, decayFactor = 0.1, threshold = 1.0) {
+function propagateTeslaResonance(activeNodeId, steps = 15) {
   if (!activeNodeId) return [];
-  const queue = [[activeNodeId, energy, 0]];
-  const activationMap = new Map();
-  const visited = new Set();
-  const nowTime = Date.now();
 
-  while (queue.length > 0) {
-    const [curr, currEnergy, depth] = queue.shift();
-    if (visited.has(curr) || currEnergy < threshold) continue;
-    visited.add(curr);
-    
-    const currentAct = activationMap.get(curr) || 0;
-    activationMap.set(curr, currentAct + currEnergy);
+  // Fetch all nodes in the codebase
+  const allNodes = db.prepare("SELECT id FROM code_nodes").all().map(n => n.id);
+  if (allNodes.length === 0) return [];
 
-    db.prepare(`
-      INSERT INTO code_node_activation (node_id, activation, last_updated)
-      VALUES (?, ?, ?)
-      ON CONFLICT(node_id) DO UPDATE SET activation = excluded.activation, last_updated = excluded.last_updated
-    `).run(curr, currentAct + currEnergy, nowTime);
+  // Initialize displacements (u) and velocities (v)
+  const u = {};
+  const v = {};
+  for (const id of allNodes) {
+    u[id] = 0.0;
+    v[id] = 0.0;
+  }
 
-    // Propagate wave to linked functions/files
-    const edges = db.prepare("SELECT target_id, weight FROM code_edges WHERE source_id = ?").all(curr);
-    for (const edge of edges) {
-      const nextEnergy = currEnergy * (1.0 - decayFactor) * (edge.weight || 1.0);
-      if (!visited.has(edge.target_id) && nextEnergy >= threshold) {
-        queue.push([edge.target_id, nextEnergy, depth + 1]);
+  // Inject initial impulse (focus event) at activeNodeId
+  if (u[activeNodeId] !== undefined) {
+    u[activeNodeId] = 10.0;
+  }
+
+  // Fetch weights of code_edges & synaptic_weights
+  const edges = db.prepare("SELECT source_id, target_id, 1.0 as weight FROM code_edges").all();
+  const synWeights = db.prepare("SELECT source_id, target_id, attention_weight as weight FROM synaptic_weights").all();
+  const allEdges = edges.concat(synWeights);
+
+  // Group edges for fast adjacency lookup
+  const adj = {};
+  for (const id of allNodes) adj[id] = [];
+  for (const e of allEdges) {
+    if (adj[e.source_id] && adj[e.target_id]) {
+      adj[e.source_id].push({ target: e.target_id, weight: e.weight });
+      adj[e.target_id].push({ target: e.source_id, weight: e.weight }); // bi-directional springs
+    }
+  }
+
+  // Wave simulation constants
+  const dt = 0.15;
+  const damping = 0.2; // Energy dissipation
+  const stiffness = 0.6; // Coupling strength
+
+  // Solve spring-mass-damper wave propagation
+  for (let step = 0; step < steps; step++) {
+    const accelerations = {};
+    for (const id of allNodes) {
+      let force = 0.0;
+      for (const neighbor of adj[id]) {
+        force += stiffness * neighbor.weight * (u[neighbor.target] - u[id]);
       }
+      accelerations[id] = force - damping * v[id] - 0.15 * u[id];
+    }
+
+    for (const id of allNodes) {
+      v[id] += accelerations[id] * dt;
+      u[id] += v[id] * dt;
+    }
+  }
+
+  // Store final absolute displacements as the activation levels
+  const nowTime = Date.now();
+  for (const id of allNodes) {
+    const act = Math.max(0, Math.abs(u[id]));
+    if (act > 0.01) {
+      db.prepare(`
+        INSERT INTO code_node_activation (node_id, activation, last_updated)
+        VALUES (?, ?, ?)
+        ON CONFLICT(node_id) DO UPDATE SET activation = excluded.activation, last_updated = excluded.last_updated
+      `).run(id, act, nowTime);
     }
   }
 
   // Find memories associated with active nodes
   const resonanceMemories = [];
-  for (const [nodeId, act] of activationMap) {
-    const links = db.prepare("SELECT memory_id FROM memory_code_links WHERE code_node_id = ?").all(nodeId);
-    for (const l of links) {
-      const mem = db.prepare("SELECT * FROM episodic_memories WHERE id = ? AND is_active = 1").get(l.memory_id);
-      if (mem) {
-        resonanceMemories.push({
-          id: mem.id,
-          content: mem.content,
-          activation: act,
-          node_id: nodeId
-        });
+  for (const id of allNodes) {
+    const act = Math.max(0, Math.abs(u[id]));
+    if (act > 0.5) {
+      const links = db.prepare("SELECT memory_id FROM memory_code_links WHERE code_node_id = ?").all(id);
+      for (const l of links) {
+        const mem = db.prepare("SELECT * FROM episodic_memories WHERE id = ? AND is_active = 1").get(l.memory_id);
+        if (mem) {
+          resonanceMemories.push({
+            id: mem.id,
+            content: mem.content,
+            activation: act,
+            node_id: id
+          });
+        }
       }
     }
   }
@@ -634,7 +676,7 @@ async function harvestErrorMusk(errorMessage, command = "test", projectId = "def
 }
 
 // ─── 4. PETER THIEL: INVARIANT CODE SECRETS (Comment vs History Contradictions) 
-function checkContrarianSecrets(activeFile, codeSnippet) {
+function checkContrarianSecrets(activeFile, codeSnippet, projectId = "default") {
   if (!activeFile) return [];
   const relPath = activeFile.replace(/\\/g, "/");
   const textToScan = codeSnippet || "";
@@ -645,20 +687,59 @@ function checkContrarianSecrets(activeFile, codeSnippet) {
     if (line.includes("//") || line.includes("#")) {
       const comment = line.slice(Math.max(line.indexOf("//"), line.indexOf("#"))).toLowerCase();
       if (comment.includes("thread-safe") || comment.includes("thread safe")) assertions.push({ type: "thread_safety", text: line.trim() });
-      if (comment.includes("validated") || comment.includes("never throws")) assertions.push({ type: "stability", text: line.trim() });
-      if (comment.includes("fast") || comment.includes("constant time")) assertions.push({ type: "performance", text: line.trim() });
+      if (comment.includes("validated") || comment.includes("never throws") || comment.includes("no-throw") || comment.includes("never fails")) assertions.push({ type: "stability", text: line.trim() });
+      if (comment.includes("fast") || comment.includes("constant time") || comment.includes("linear time")) assertions.push({ type: "performance", text: line.trim() });
+      if (comment.includes("not null") || comment.includes("never null") || comment.includes("non-null")) assertions.push({ type: "null_handling", text: line.trim() });
     }
   }
 
   const secrets = [];
   for (const ass of assertions) {
+    // 1. Direct links to this file/node
     const historicalFailures = db.prepare(`
       SELECT em.content, em.created_at FROM episodic_memories em
       JOIN memory_code_links mcl ON mcl.memory_id = em.id
-      WHERE mcl.code_node_id LIKE ? AND em.event_type = 'error'
-    `).all(`%${relPath}%`);
+      WHERE em.project = ? AND mcl.code_node_id LIKE ? AND em.event_type = 'error'
+    `).all(projectId, `%${relPath}%`);
 
-    for (const fail of historicalFailures) {
+    // 2. Project-wide keyword matches
+    let matchingFails = [...historicalFailures];
+    let projectFails = [];
+    if (ass.type === "thread_safety") {
+      projectFails = db.prepare(`
+        SELECT content, created_at FROM episodic_memories 
+        WHERE project = ? AND event_type = 'error' 
+          AND (content LIKE '%thread%' OR content LIKE '%race%' OR content LIKE '%concurrency%' OR content LIKE '%lock%' OR content LIKE '%deadlock%')
+      `).all(projectId);
+    } else if (ass.type === "stability") {
+      projectFails = db.prepare(`
+        SELECT content, created_at FROM episodic_memories 
+        WHERE project = ? AND event_type = 'error'
+          AND (content LIKE '%throw%' OR content LIKE '%exception%' OR content LIKE '%crash%' OR content LIKE '%error%' OR content LIKE '%fail%' OR content LIKE '%leak%')
+      `).all(projectId);
+    } else if (ass.type === "null_handling") {
+      projectFails = db.prepare(`
+        SELECT content, created_at FROM episodic_memories 
+        WHERE project = ? AND event_type = 'error'
+          AND (content LIKE '%null%' OR content LIKE '%undefined%' OR content LIKE '%pointer%' OR content LIKE '%dereference%')
+      `).all(projectId);
+    } else if (ass.type === "performance") {
+      projectFails = db.prepare(`
+        SELECT content, created_at FROM episodic_memories 
+        WHERE project = ? AND event_type = 'observation'
+          AND (content LIKE '%slow%' OR content LIKE '%performance%' OR content LIKE '%ms%' OR content LIKE '%latency%')
+      `).all(projectId);
+    }
+
+    const seenContents = new Set(matchingFails.map(f => f.content));
+    for (const pf of projectFails) {
+      if (!seenContents.has(pf.content)) {
+        matchingFails.push(pf);
+        seenContents.add(pf.content);
+      }
+    }
+
+    for (const fail of matchingFails) {
       secrets.push({
         assertion_type: ass.type,
         assertion_text: ass.text,
@@ -673,7 +754,6 @@ function checkContrarianSecrets(activeFile, codeSnippet) {
 
 // ─── 5. NAVAL RAVIKANT: LEVERAGED STRUCTURAL ROI (Edit/Bug Hotspots) ─────────
 function calculateRefactoringHotspots(projectId) {
-  // Naval Leverage Score = Bug Count / (Edit Count + 1) -> indicates high volatility and risk
   const nodes = db.prepare(`
     SELECT id, name, node_type, filepath, edit_count, bug_count FROM code_nodes
     WHERE project = ? AND (edit_count > 0 OR bug_count > 0)
@@ -707,15 +787,24 @@ function checkDependencyStewardship(activeFile) {
     if (steward) {
       const crashRate = steward.use_count === 0 ? 0 : steward.error_count / steward.use_count;
       const status = crashRate > 0.4 ? "critical" : (crashRate > 0.15 ? "unstable" : "stable");
+      const trustCoefficient = 1.0 - crashRate;
+      
       if (status !== "stable") {
+        let circuitBreakerProposal = null;
+        if (trustCoefficient < 0.8) {
+          circuitBreakerProposal = `PROPOSAL: Wrap all invocations of '${steward.package_name}' in a try-catch circuit breaker. Example:\n` +
+            `try { return require('${steward.package_name}').call(); } catch (e) { console.error('Tata Circuit Breaker Tripped:', e.message); return null; }`;
+        }
         alerts.push({
           package: steward.package_name,
           error_count: steward.error_count,
           use_count: steward.use_count,
           crash_rate: Math.round(crashRate * 100) + "%",
+          trust_coefficient: Math.round(trustCoefficient * 100) / 100,
           status: status,
           message: `Stewardship alert: [${steward.package_name}] has local crash rate of ${Math.round(crashRate * 100)}%. Avoid deploying without wrappers.`,
-          warning: `Stewardship alert: [${steward.package_name}] has local crash rate of ${Math.round(crashRate * 100)}%. Avoid deploying without wrappers.`
+          warning: `Stewardship alert: [${steward.package_name}] has local crash rate of ${Math.round(crashRate * 100)}%. Avoid deploying without wrappers.`,
+          circuit_breaker: circuitBreakerProposal
         });
       }
     }
@@ -939,6 +1028,37 @@ function pruneGlymphaticSubstrate(projectId) {
   }
 }
 
+function chronoPruneWorkspace(projectId) {
+  try {
+    const deadNodes = db.prepare(`
+      SELECT cn.id, cn.name, cn.filepath, cn.node_type 
+      FROM code_nodes cn
+      LEFT JOIN code_node_activation cna ON cna.node_id = cn.id
+      WHERE cn.project = ? AND cn.edit_count = 0 AND cn.bug_count = 0
+        AND (cna.activation IS NULL OR cna.activation < 0.1)
+    `).all(projectId);
+
+    const proposals = deadNodes.map(n => {
+      return {
+        node_id: n.id,
+        name: n.name,
+        filepath: n.filepath,
+        type: n.node_type,
+        recommendation: `DELETE: Node [${n.name}] is completely dead weight (0 edits, 0 bugs, 0 focus activation). Delete it to reach perfection.`
+      };
+    });
+
+    return {
+      status: "pruner_analysis_completed",
+      dead_nodes_count: deadNodes.length,
+      proposals
+    };
+  } catch (err) {
+    console.error(`[OWL SERVER] Chrono-pruner failed: ${err.message}`);
+    return { status: "failed", error: err.message };
+  }
+}
+
 // ─── MCP Server Setup ────────────────────────────────────────────────────────
 const server = new Server(
   { name: "owl-memory", version: "5.0.0" },
@@ -1115,7 +1235,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         const gravityContext = calculateRelativisticGravity(activeNodeId, projectId);
         const resonantContext = propagateTeslaResonance(activeNodeId);
-        const secretContradictions = checkContrarianSecrets(activeFile, codeSnippet);
+        const secretContradictions = checkContrarianSecrets(activeFile, codeSnippet, projectId);
         const dependencyAlerts = checkDependencyStewardship(activeFile);
         const healingMocks = calculateDaVinciHealing(activeNodeId);
         const hotspots = calculateRefactoringHotspots(projectId);
@@ -1238,7 +1358,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const sim = runAutonomicDreamSimulation(projectId);
         const evo = evolveDatabaseSchema(projectId);
         const gly = pruneGlymphaticSubstrate(projectId);
-        return { content: [{ type: "text", text: JSON.stringify({ status: "dream_cycle_completed", report: rep, simulation: sim, schema_evolution: evo, glymphatic_cleanup: gly }) }] };
+        const torvalds = chronoPruneWorkspace(projectId);
+        return { content: [{ type: "text", text: JSON.stringify({ status: "dream_cycle_completed", report: rep, simulation: sim, schema_evolution: evo, glymphatic_cleanup: gly, torvalds_chrono_pruner: torvalds }) }] };
       }
     }
 
