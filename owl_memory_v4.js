@@ -714,6 +714,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     { name: "query_codebase", description: "Query the extracted code nodes (files, classes, functions) by keyword similarity.", inputSchema: { type: "object", properties: { query: { type: "string" }, node_type: { type: "string", enum: ["all","file","class","function"], default: "all" }, project: { type: "string", default: "default" } }, required: ["query"] } },
     { name: "code_path", description: "Find call paths or import dependencies between two code nodes using BFS.", inputSchema: { type: "object", properties: { from_node: { type: "string" }, to_node: { type: "string" }, project: { type: "string", default: "default" } }, required: ["from_node","to_node"] } },
     { name: "cluster_codebase", description: "Group code nodes into modular communities using a local Label Propagation algorithm.", inputSchema: { type: "object", properties: { project: { type: "string", default: "default" } } } },
+    { name: "anticipate_resonant", description: "Nikola Tesla Resonant Context — find memories linked to functions and files connected in the call graph.", inputSchema: { type: "object", properties: { node_id: { type: "string" }, project: { type: "string", default: "default" }, limit: { type: "number", default: 5 }, max_depth: { type: "number", default: 2 } }, required: ["node_id"] } },
   ],
 }));
 
@@ -1992,6 +1993,63 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       return { content: [{ type: "text", text: JSON.stringify({ communities, total_communities: Object.keys(communities).length }, null, 2) }] };
+    }
+
+    // ═══ v4 NEW: ANTICIPATE_RESONANT (Tesla Resonant Context) ═══
+    if (name === "anticipate_resonant") {
+      const nodeId = args.node_id, projectId = args.project || "default";
+      const limit = args.limit || 5, maxDepth = args.max_depth || 2;
+      
+      const queue = [[nodeId, 0]];
+      const visited = new Set();
+      const nodeDistances = new Map();
+      
+      while (queue.length > 0) {
+        const [curr, depth] = queue.shift();
+        if (visited.has(curr)) continue;
+        visited.add(curr);
+        nodeDistances.set(curr, depth);
+        
+        if (depth < maxDepth) {
+          const edges = db.prepare("SELECT target_id FROM code_edges WHERE source_id = ?").all(curr);
+          for (const edge of edges) {
+            if (!visited.has(edge.target_id)) {
+              queue.push([edge.target_id, depth + 1]);
+            }
+          }
+        }
+      }
+
+      const resonantMemories = [];
+      const seenMemIds = new Set();
+
+      for (const [currNodeId, depth] of nodeDistances.entries()) {
+        const weight = depth === 0 ? 1.0 : (depth === 1 ? 1.0 : 0.5);
+        const links = db.prepare(`SELECT mcl.link_type, em.* FROM memory_code_links mcl
+                                  JOIN episodic_memories em ON em.id = mcl.memory_id
+                                  WHERE mcl.code_node_id = ? AND em.project = ? AND em.is_active = 1`).all(currNodeId, projectId);
+        
+        for (const link of links) {
+          if (!seenMemIds.has(link.id)) {
+            seenMemIds.add(link.id);
+            const score = link.strength * weight;
+            resonantMemories.push({
+              id: link.id,
+              content: link.content,
+              event_type: link.event_type,
+              proximity_depth: depth,
+              proximity_weight: weight,
+              original_strength: link.strength,
+              resonant_strength: Math.round(score * 100) / 100
+            });
+          }
+        }
+      }
+
+      resonantMemories.sort((a, b) => b.resonant_strength - a.resonant_strength);
+      const suggestions = resonantMemories.slice(0, limit);
+
+      return { content: [{ type: "text", text: JSON.stringify({ node_id: nodeId, traversed_nodes: nodeDistances.size, memories_found: resonantMemories.length, suggestions }, null, 2) }] };
     }
 
     return { content: [{ type: "text", text: `Unknown tool: ${name}` }] };

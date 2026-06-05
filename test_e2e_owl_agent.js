@@ -182,6 +182,26 @@ async function main() {
   });
   console.log("");
 
+  // 10. Tesla Resonance Proximity Context (anticipate_resonant)
+  console.log("[Step 10] Running 'anticipate_resonant' (Tesla Resonance) on the main file...");
+  const resonant = PT(await sendRPC(proc, 10, "tools/call", {
+    name: "anticipate_resonant",
+    arguments: {
+      node_id: "owl_memory_v4.js",
+      project: "hermes-mcps",
+      max_depth: 2
+    }
+  }));
+  console.log(`✓ Resonant Nodes Visited: ${resonant.traversed_nodes}`);
+  console.log(`✓ Resonant Memories Found: ${resonant.memories_found}`);
+  if (resonant.suggestions && resonant.suggestions.length > 0) {
+    console.log("Resonant Context Suggestions:");
+    resonant.suggestions.forEach(s => {
+      console.log(`  * [Depth ${s.proximity_depth}, Resonant Strength ${s.resonant_strength}] ${s.content}`);
+    });
+  }
+  console.log("");
+
   console.log("======================================================================");
   console.log("   E2E SIMULATION COMPLETED — ALL PROOFS SUCCESSFULLY VERIFIED ✅");
   console.log("======================================================================");
