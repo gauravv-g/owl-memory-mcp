@@ -15,6 +15,12 @@ Instead of treating memory as a dry list of facts, OWL Memory acts as an active 
     *   *Somatic*: Emotional valence and arousal tracking for entities.
     *   *Transactive*: Records who knows what across multiple agents.
     *   *Working Memory*: A active 4-chunk context window.
+*   **Neuromorphic Cognitive Architecture (NCA)**:
+    *   *Synaptic Spreading Activation*: BFS energy propagation through the codebase call graph (`inject_activation`).
+    *   *ASGM Error Learning*: Surprise-Gated Acetylcholine Memory parsing compiler/test error traces (`learn_from_error`).
+    *   *Context Isolation*: Automatically locks memories to active Git branches and commits.
+    *   *Glymphatic Pruning*: Sleep-state database cleaning (`glymphatic_prune`).
+    *   *Transactive Privacy Scrub*: Strips keys/secrets and hashes error patterns for peer sharing (`anonymize_memory`).
 *   **Static Code Intelligence**:
     *   *AST Scanner*: Extracts files, classes, and function definitions recursively.
     *   *Call Graph Edges*: Maps function calls and import relationships.
@@ -26,7 +32,7 @@ Instead of treating memory as a dry list of facts, OWL Memory acts as an active 
     *   *Warn*: Warning engine flagging risks from past errors in planned actions.
     *   *Why*: Causal traceback query stepping backward through related historical events.
     *   *Transfer*: Analogy engine that adapts stored skills to new domains.
-*   **Zero API Cost**: RunsCPU-quantized vector embedding (`all-MiniLM-L6-v2`) and NER token classification (`bert-base-NER`) models locally on your machine.
+*   **Zero API Cost**: Runs CPU-quantized vector embedding (`all-MiniLM-L6-v2`) and NER token classification (`bert-base-NER`) models locally on your machine.
 
 ---
 
@@ -56,7 +62,7 @@ Assume a standard coding session of 40 conversation turns:
 ### Setup
 Clone the repository and install the dependencies:
 ```bash
-git clone https://github.com/your-username/owl-memory-mcp.git
+git clone https://github.com/gauravv-g/owl-memory-mcp.git
 cd owl-memory-mcp
 npm install
 ```
@@ -116,6 +122,12 @@ Add this to your `claude_desktop_config.json`:
 OWL Memory exposes a live force-directed D3.js memory graph. Open your browser and navigate to:
 `owl-memory://graph-ui`
 This lets you visually inspect your episodic memory, linked entities, and code structures.
+
+---
+
+## Benchmarks
+
+Evaluating MCP servers is done using several industry standard frameworks such as **MCP-Universe**, **MCP-Bench**, and **MCP-AgentBench**. For detailed instructions and information on how these evaluations are performed, see [BENCHMARKS.md](file:///c:/Users/shiva/hermes-custom-mcps/BENCHMARKS.md).
 
 ---
 
