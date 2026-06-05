@@ -528,6 +528,31 @@ db.exec(`
         link_type TEXT DEFAULT 'associated',
         PRIMARY KEY (memory_id, code_node_id)
     );
+
+    CREATE TABLE IF NOT EXISTS code_node_activation (
+        node_id TEXT PRIMARY KEY,
+        activation REAL DEFAULT 0.0,
+        last_updated INTEGER,
+        FOREIGN KEY(node_id) REFERENCES code_nodes(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS synaptic_weights (
+        source_id TEXT,
+        target_id TEXT,
+        weight REAL DEFAULT 1.0,
+        co_occurrences INTEGER DEFAULT 1,
+        PRIMARY KEY(source_id, target_id),
+        FOREIGN KEY(source_id) REFERENCES code_nodes(id) ON DELETE CASCADE,
+        FOREIGN KEY(target_id) REFERENCES code_nodes(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS memory_git_branches (
+        memory_id TEXT,
+        branch_name TEXT,
+        commit_sha TEXT,
+        PRIMARY KEY(memory_id, branch_name),
+        FOREIGN KEY(memory_id) REFERENCES episodic_memories(id) ON DELETE CASCADE
+    );
 `);
 
 // ─── Brain-Inspired Algorithms ───────────────────────────────────────────────
@@ -715,6 +740,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     { name: "code_path", description: "Find call paths or import dependencies between two code nodes using BFS.", inputSchema: { type: "object", properties: { from_node: { type: "string" }, to_node: { type: "string" }, project: { type: "string", default: "default" } }, required: ["from_node","to_node"] } },
     { name: "cluster_codebase", description: "Group code nodes into modular communities using a local Label Propagation algorithm.", inputSchema: { type: "object", properties: { project: { type: "string", default: "default" } } } },
     { name: "anticipate_resonant", description: "Nikola Tesla Resonant Context — find memories linked to functions and files connected in the call graph.", inputSchema: { type: "object", properties: { node_id: { type: "string" }, project: { type: "string", default: "default" }, limit: { type: "number", default: 5 }, max_depth: { type: "number", default: 2 } }, required: ["node_id"] } },
+    { name: "inject_activation", description: "Inject spreading activation energy into a code node. Propagates energy through the call graph, decay over distance/time, and retrieve memories with activation above the threshold.", inputSchema: { type: "object", properties: { node_id: { type: "string" }, energy: { type: "number", default: 10.0 }, project: { type: "string", default: "default" }, decay_factor: { type: "number", default: 0.1 }, threshold: { type: "number", default: 1.0 }, max_depth: { type: "number", default: 2 } }, required: ["node_id"] } },
+    { name: "learn_from_error", description: "Surprise-Gated Acetylcholine Memory (ASGM). Capture command error traces, parse stack trace, automatically locate/register the code function, store the bug memory, and link them.", inputSchema: { type: "object", properties: { error_message: { type: "string" }, command: { type: "string", default: "unknown" }, project: { type: "string", default: "default" }, surprise_score: { type: "number", default: 0.8 } }, required: ["error_message"] } },
   ],
 }));
 
@@ -2050,6 +2077,257 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const suggestions = resonantMemories.slice(0, limit);
 
       return { content: [{ type: "text", text: JSON.stringify({ node_id: nodeId, traversed_nodes: nodeDistances.size, memories_found: resonantMemories.length, suggestions }, null, 2) }] };
+    }
+
+    // ═══ v4 NEW: INJECT_ACTIVATION (Spreading Activation Context) ═══
+    if (name === "inject_activation") {
+      const nodeId = args.node_id, projectId = args.project || "default";
+      const energy = args.energy !== undefined ? args.energy : 10.0;
+      const decayFactor = args.decay_factor !== undefined ? args.decay_factor : 0.1;
+      const threshold = args.threshold !== undefined ? args.threshold : 1.0;
+      const maxDepth = args.max_depth !== undefined ? args.max_depth : 2;
+
+      // 1. Decaying all existing activation levels of other nodes in the same project first
+      db.prepare(`
+        UPDATE code_node_activation 
+        SET activation = activation * (1.0 - ?) 
+        WHERE node_id IN (SELECT id FROM code_nodes WHERE project = ?)
+      `).run(decayFactor, projectId);
+
+      // 2. Perform BFS to propagate energy
+      const queue = [[nodeId, energy, 0]];
+      const visited = new Set();
+      const nodeEnergies = new Map();
+
+      while (queue.length > 0) {
+        const [curr, currEnergy, depth] = queue.shift();
+        if (visited.has(curr)) continue;
+        visited.add(curr);
+
+        // Get existing activation level
+        const row = db.prepare("SELECT activation FROM code_node_activation WHERE node_id = ?").get(curr);
+        const existing = row ? row.activation : 0.0;
+        const targetEnergy = existing + currEnergy;
+        nodeEnergies.set(curr, targetEnergy);
+
+        // Update database activation level
+        const now = Date.now();
+        db.prepare(`
+          INSERT INTO code_node_activation (node_id, activation, last_updated)
+          VALUES (?, ?, ?)
+          ON CONFLICT(node_id) DO UPDATE SET activation = excluded.activation, last_updated = excluded.last_updated
+        `).run(curr, targetEnergy, now);
+
+        if (depth < maxDepth) {
+          const nextEnergy = currEnergy * (1.0 - decayFactor);
+          if (nextEnergy > 0.1) {
+            const edges = db.prepare("SELECT target_id, weight FROM code_edges WHERE source_id = ?").all(curr);
+            for (const edge of edges) {
+              if (!visited.has(edge.target_id)) {
+                queue.push([edge.target_id, nextEnergy * (edge.weight || 1.0), depth + 1]);
+              }
+            }
+          }
+        }
+      }
+
+      // 3. Find and return memories connected to nodes that have spiked above the threshold
+      const spikedMemories = [];
+      const seenMemIds = new Set();
+
+      const activatedNodes = db.prepare(`
+        SELECT cna.node_id, cna.activation, cn.name, cn.filepath
+        FROM code_node_activation cna
+        JOIN code_nodes cn ON cn.id = cna.node_id
+        WHERE cna.activation > ? AND cn.project = ?
+      `).all(threshold, projectId);
+
+      for (const node of activatedNodes) {
+        const links = db.prepare(`
+          SELECT mcl.link_type, em.* FROM memory_code_links mcl
+          JOIN episodic_memories em ON em.id = mcl.memory_id
+          WHERE mcl.code_node_id = ? AND em.project = ? AND em.is_active = 1
+        `).all(node.node_id, projectId);
+
+        for (const link of links) {
+          if (!seenMemIds.has(link.id)) {
+            seenMemIds.add(link.id);
+            spikedMemories.push({
+              id: link.id,
+              content: link.content,
+              event_type: link.event_type,
+              node_id: node.node_id,
+              node_name: node.name,
+              node_filepath: node.filepath,
+              activation: Math.round(node.activation * 100) / 100
+            });
+          }
+        }
+      }
+
+      spikedMemories.sort((a, b) => b.activation - a.activation);
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            starting_node: nodeId,
+            energy_injected: energy,
+            activated_nodes_count: nodeEnergies.size,
+            spiked_memories_found: spikedMemories.length,
+            spiked_memories: spikedMemories
+          }, null, 2)
+        }]
+      };
+    }
+
+    // ═══ v4 NEW: LEARN_FROM_ERROR (Acetylcholine Surprise-Gated Loop) ═══
+    if (name === "learn_from_error") {
+      const errorMessage = args.error_message;
+      const command = args.command || "unknown";
+      const projectId = args.project || "default";
+      const surprise = args.surprise_score !== undefined ? args.surprise_score : 0.8;
+
+      // 1. Stack trace parsing heuristics (supporting Javascript, Python, and generic logs)
+      let filepath = "";
+      let lineNumber = 0;
+      let functionName = "";
+
+      const jsPatt1 = /at\s+([^\s(]+)\s+\(([^:]+):(\d+):(\d+)\)/;
+      const jsPatt2 = /at\s+([^:]+):(\d+):(\d+)/;
+      const pyPatt = /File\s+"([^"]+)",\s+line\s+(\d+),\s+in\s+(\w+)/;
+      const genericPatt = /^([^:\n]+):(\d+):(\d+):/;
+
+      let match = errorMessage.match(jsPatt1);
+      if (match) {
+        functionName = match[1];
+        filepath = match[2];
+        lineNumber = parseInt(match[3], 10);
+      } else {
+        match = errorMessage.match(jsPatt2);
+        if (match) {
+          filepath = match[1];
+          lineNumber = parseInt(match[2], 10);
+        } else {
+          match = errorMessage.match(pyPatt);
+          if (match) {
+            filepath = match[1];
+            lineNumber = parseInt(match[2], 10);
+            functionName = match[3];
+          } else {
+            match = errorMessage.match(genericPatt);
+            if (match) {
+              filepath = match[1];
+              lineNumber = parseInt(match[2], 10);
+            }
+          }
+        }
+      }
+
+      if (filepath) {
+        filepath = filepath.replace(/\\/g, "/").trim();
+        if (filepath.includes("/")) {
+          const parts = filepath.split("/");
+          filepath = parts.slice(-2).join("/");
+        }
+      } else {
+        filepath = "unknown_file";
+      }
+
+      if (!functionName) {
+        functionName = "anonymous";
+      }
+
+      let targetNodeId = `${filepath}::function::${functionName}`;
+      if (functionName === "anonymous") {
+        targetNodeId = `${filepath}::file::${filepath}`;
+      }
+
+      const nodeCheck = db.prepare("SELECT id FROM code_nodes WHERE id = ?").get(targetNodeId);
+      if (!nodeCheck) {
+        const now = new Date().toISOString();
+        db.prepare(`
+          INSERT INTO code_nodes (id, name, node_type, filepath, content, project, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          targetNodeId,
+          functionName === "anonymous" ? filepath : functionName,
+          functionName === "anonymous" ? "file" : "function",
+          filepath,
+          `Auto-registered via learn_from_error tool`,
+          projectId,
+          now,
+          now
+        );
+      }
+
+      const memoryContent = `CRITICAL EXCEPTION [Command: ${command}]: ${errorMessage.slice(0, 500)}`;
+      const emotional = detectEmotionalSalience(memoryContent);
+      const nowStr = new Date().toISOString();
+      const memoryId = crypto.randomBytes(8).toString("hex");
+
+      const emotionalArousal = Math.max(0.8, emotional.arousal);
+      const salience = Math.max(0.9, emotional.salience);
+      const strength = surprise;
+
+      db.prepare(`
+        INSERT INTO episodic_memories (
+          id, content, event_type, created_at, updated_at, project,
+          emotional_valence, emotional_arousal, salience, strength,
+          developmental_stage, access_count, last_accessed, next_review, review_interval
+        ) VALUES (?, ?, 'error', ?, ?, ?, -0.5, ?, ?, ?, 'raw', 1, ?, ?, 1.0)
+      `).run(
+        memoryId,
+        memoryContent,
+        nowStr,
+        nowStr,
+        projectId,
+        emotionalArousal,
+        salience,
+        strength,
+        nowStr,
+        calculateNextReview(strength, 1, 0.5, "raw")
+      );
+
+      if (hasVectors) {
+        try {
+          const embedder = getEmbedder();
+          const embedding = embedder(memoryContent);
+          const buf = Float32Array.from(embedding);
+          db.prepare("INSERT INTO episodic_embeddings (rowid, embedding) VALUES (?, ?)").run(memoryId, buf);
+        } catch (embErr) {
+          console.error("Vector embedding failed in learn_from_error:", embErr.message);
+        }
+      }
+
+      db.prepare(`
+        INSERT INTO memory_code_links (memory_id, code_node_id, link_type)
+        VALUES (?, ?, 'caused_bug')
+        ON CONFLICT(memory_id, code_node_id) DO UPDATE SET link_type = excluded.link_type
+      `).run(memoryId, targetNodeId);
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            status: "success",
+            surprise_metric: surprise,
+            parsed_stack: {
+              filepath: filepath,
+              line_number: lineNumber,
+              function_name: functionName
+            },
+            registered_code_node: targetNodeId,
+            stored_memory: {
+              id: memoryId,
+              content: memoryContent,
+              emotional_arousal: emotionalArousal,
+              salience: salience,
+              strength: strength
+            }
+          }, null, 2)
+        }]
+      };
     }
 
     return { content: [{ type: "text", text: `Unknown tool: ${name}` }] };
