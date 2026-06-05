@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OWL Memory Graph</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a1a;color:#e0e0e0;overflow:hidden}
+#graph{width:100vw;height:100vh}
+#controls{position:fixed;top:16px;left:16px;background:rgba(15,15,35,0.92);border:1px solid #2a2a4a;border-radius:12px;padding:16px;max-width:320px;backdrop-filter:blur(10px);z-index:10}
+#controls h2{font-size:14px;color:#8b5cf6;margin-bottom:8px;font-weight:600}
+#controls .stat{font-size:11px;color:#888;margin:3px 0}
+#controls .stat span{color:#c0c0c0;font-weight:500}
+#controls .legend{margin-top:10px;padding-top:10px;border-top:1px solid #2a2a4a}
+#controls .legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:#888;margin:3px 0}
+#controls .legend-dot{width:10px;height:10px;border-radius:50%}
+#tooltip{position:fixed;background:rgba(20,20,50,0.95);border:1px solid #3a3a6a;border-radius:8px;padding:12px;max-width:350px;font-size:12px;pointer-events:none;opacity:0;transition:opacity 0.15s;z-index:20;backdrop-filter:blur(10px)}
+#tooltip .content{color:#e0e0e0;line-height:1.5}
+#tooltip .meta{color:#8b5cf6;font-size:10px;margin-top:6px}
+#tooltip .entity-tag{display:inline-block;background:#2a2a4a;border-radius:4px;padding:1px 6px;margin:2px;font-size:10px;color:#a78bfa}
+svg text{font-size:9px;fill:#aaa;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="controls"><h2>OWL Memory Graph</h2><div id="stats"></div><div class="legend" id="legend"></div></div>
+<div id="graph"></div>
+<div id="tooltip"><div class="content"></div><div class="meta"></div></div>
+<script>
+const WIDTH=window.innerWidth,HEIGHT=window.innerHeight;
+const svg=d3.select("#graph").append("svg").attr("width",WIDTH).attr("height",HEIGHT);
+const g=svg.append("g");
+const zoom=d3.zoom().scaleExtent([0.1,8]).on("zoom",(e)=>g.attr("transform",e.transform));
+svg.call(zoom);
+
+const colors={observation:"#2196F3",decision:"#f59e0b",interaction:"#10b981",learning:"#8b5cf6",error:"#ef4444",insight:"#06b6d4",person:"#f472b6",organization:"#a78bfa",location:"#34d399",product:"#fbbf24",event:"#fb923c",finance:"#22d3ee",misc:"#94a3b8"};
+const groupNames={observation:"Observation",decision:"Decision",interaction:"Interaction",learning:"Learning",error:"Error",insight:"Insight",person:"Person",organization:"Organization",location:"Location",product:"Product",event:"Event",finance:"Finance",misc:"Misc"};
+
+const tooltip=d3.select("#tooltip");
+const tooltipContent=tooltip.select(".content");
+const tooltipMeta=tooltip.select(".meta");
+
+function showTooltip(d,event){
+  let html="<strong>"+d.label+"</strong>";
+  if(d.stage) html+="<br>Stage: "+d.stage;
+  if(d.salience) html+="<br>Salience: "+d.salience.toFixed(2);
+  if(d.group) html+="<br>Type: "+(groupNames[d.group]||d.group);
+  tooltipContent.html(html);
+  tooltipMeta.text(d.id.slice(0,8)+"...");
+  tooltip.style("opacity",1).style("left",(event.clientX+15)+"px").style("top",(event.clientY-10)+"px");
+}
+function hideTooltip(){tooltip.style("opacity",0);}
+
+// Fetch graph data from MCP resource
+fetch("owl-memory://graph").then(r=>r.json()).then(data=>{
+  const nodes=data.nodes.map(d=>({...d}));
+  const links=data.edges.map(d=>({...d}));
+  const entMap={};
+  (data.entities||[]).forEach(e=>{if(!entMap[e.memory_id])entMap[e.memory_id]=[];entMap[e.memory_id].push(e);});
+
+  document.getElementById("stats").innerHTML=
+    '<div class="stat">Nodes: <span>'+nodes.length+'</span></div>'+
+    '<div class="stat">Edges: <span>'+links.length+'</span></div>'+
+    '<div class="stat">Entities: <span>'+(data.stats?.entities||0)+'</span></div>'+
+    '<div class="stat">Vector: <span>'+(data.stats?.vector_enabled?'ON':'OFF')+'</span></div>'+
+    '<div class="stat">NER: <span>'+(data.stats?.ner_enabled?'ON':'OFF')+'</span></div>';
+
+  // Build legend from actual groups
+  const groups=[...new Set(nodes.map(d=>d.group))].filter(Boolean);
+  const legendHtml=groups.slice(0,8).map(g=>'<div class="legend-item"><div class="legend-dot" style="background:'+(colors[g]||"#888")+'"></div>'+(groupNames[g]||g)+'</div>').join("");
+  document.getElementById("legend").innerHTML=legendHtml;
+
+  const simulation=d3.forceSimulation(nodes)
+    .force("link",d3.forceLink(links).id(d=>d.id).distance(80).strength(d=>(d.strength||0.3)*0.5))
+    .force("charge",d3.forceManyBody().strength(-200))
+    .force("center",d3.forceCenter(WIDTH/2,HEIGHT/2))
+    .force("collision",d3.forceCollide().radius(d=>d.size+5));
+
+  const link=g.append("g").selectAll("line").data(links).join("line")
+    .attr("stroke","#2a2a4a").attr("stroke-width",d=>Math.max(1,(d.strength||0.3)*3)).attr("stroke-opacity",0.5);
+
+  const node=g.append("g").selectAll("circle").data(nodes).join("circle")
+    .attr("r",d=>d.size||5).attr("fill",d=>colors[d.group]||"#6b7280")
+    .attr("stroke","#fff").attr("stroke-width",0.5).attr("stroke-opacity",0.3)
+    .style("cursor","pointer")
+    .call(d3.drag().on("start",(e,d)=>{if(!e.active)simulation.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y;}).on("drag",(e,d)=>{d.fx=e.x;d.fy=e.y;}).on("end",(e,d)=>{if(!e.active)simulation.alphaTarget(0);d.fx=null;d.fy=null;}))
+    .on("mouseover",(e,d)=>{showTooltip(e,d);d3.select(e.currentTarget).attr("stroke-width",2).attr("stroke-opacity",0.8);})
+    .on("mousemove",(e,d)=>showTooltip(e,d))
+    .on("mouseout",(e,d)=>{hideTooltip();d3.select(e.currentTarget).attr("stroke-width",0.5).attr("stroke-opacity",0.3);})
+    .on("click",(e,d)=>{
+      const ents=entMap[d.id]||[];
+      if(ents.length){
+        let html="<strong>"+d.label+"</strong><br><br>Entities:";
+        ents.forEach(ent=>{html+='<span class="entity-tag">'+ent.name+' ('+ent.entity_type+')</span>';});
+        tooltipContent.html(html);
+        tooltipMeta.text("Click elsewhere to close");
+        tooltip.style("opacity",1).style("left",(e.clientX+15)+"px").style("top",(e.clientY-10)+"px");
+      }
+    });
+
+  // Labels for high-salience nodes
+  const labels=g.append("g").selectAll("text").data(nodes.filter(d=>d.salience>0.5)).join("text")
+    .text(d=>d.label.length>30?d.label.slice(0,30)+"...":d.label)
+    .attr("dx",8).attr("dy",3);
+
+  simulation.on("tick",()=>{
+    link.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("x2",d=>d.target.x).attr("y2",d=>d.target.y);
+    node.attr("cx",d=>d.x).attr("cy",d=>d.y);
+    labels.attr("x",d=>d.x).attr("y",d=>d.y);
+  });
+
+  // Initial zoom to fit
+  setTimeout(()=>{
+    const bounds=g.node().getBBox();
+    const fullWidth=Math.max(bounds.width+100,100);
+    const fullHeight=Math.max(bounds.height+100,100);
+    const scale=Math.min(WIDTH/fullWidth,HEIGHT/fullHeight,1)*0.9;
+    svg.call(zoom.transform,d3.zoomIdentity.translate(WIDTH/2-bounds.x*scale,HEIGHT/2-bounds.y*scale).scale(scale));
+  },500);
+
+}).catch(e=>{
+  document.getElementById("stats").innerHTML='<div class="stat" style="color:#ef4444">Error loading graph: '+e.message+'</div>';
+});
+</script></body></html>
