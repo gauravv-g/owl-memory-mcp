@@ -902,6 +902,43 @@ function evolveDatabaseSchema(projectId) {
   }
 }
 
+function pruneGlymphaticSubstrate(projectId) {
+  const now = new Date().toISOString();
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  
+  try {
+    console.error(`[OWL SERVER] Executing Sleep-State Glymphatic Cleanup...`);
+    
+    // 1. Prune weak synaptic weights (weight < 0.12, inactive for 24 hours)
+    const synRes = db.prepare(`
+      DELETE FROM synaptic_weights 
+      WHERE attention_weight < 0.12 
+        AND last_transition < ?
+    `).run(yesterday);
+
+    // 2. Prune old resolved bugs (inactive for 48 hours)
+    const bugRes = db.prepare(`
+      DELETE FROM code_bugs 
+      WHERE is_active = 0 
+        AND created_at < ?
+    `).run(twoDaysAgo);
+
+    // 3. Compact database using VACUUM
+    db.exec("VACUUM");
+
+    console.error(`[OWL SERVER] Glymphatic cleanup complete. Pruned ${synRes.changes} synapses and ${bugRes.changes} bugs.`);
+    return {
+      status: "completed",
+      pruned_synapses: synRes.changes,
+      pruned_bugs: bugRes.changes
+    };
+  } catch (err) {
+    console.error(`[OWL SERVER] Glymphatic cleanup failed: ${err.message}`);
+    return { status: "failed", error: err.message };
+  }
+}
+
 // ─── MCP Server Setup ────────────────────────────────────────────────────────
 const server = new Server(
   { name: "owl-memory", version: "5.0.0" },
@@ -1200,7 +1237,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const rep = consolidateMemories(projectId);
         const sim = runAutonomicDreamSimulation(projectId);
         const evo = evolveDatabaseSchema(projectId);
-        return { content: [{ type: "text", text: JSON.stringify({ status: "dream_cycle_completed", report: rep, simulation: sim, schema_evolution: evo }) }] };
+        const gly = pruneGlymphaticSubstrate(projectId);
+        return { content: [{ type: "text", text: JSON.stringify({ status: "dream_cycle_completed", report: rep, simulation: sim, schema_evolution: evo, glymphatic_cleanup: gly }) }] };
       }
     }
 
@@ -1334,14 +1372,18 @@ async function getGraphData() {
   }
 
   // 5. Fetch Code Nodes
-  const codeNodes = db.prepare("SELECT * FROM code_nodes").all();
+  const codeNodes = db.prepare(`
+    SELECT cn.*, COALESCE(cna.activation, 0.0) as activation 
+    FROM code_nodes cn
+    LEFT JOIN code_node_activation cna ON cna.node_id = cn.id
+  `).all();
   for (const n of codeNodes) {
     nodes.push({
       id: n.id,
       label: n.name,
       group: n.node_type || "file",
       size: Math.max(10, (n.edit_count || 0) * 1.5 + (n.bug_count || 0) * 3),
-      raw: { content: n.content, filepath: n.filepath, edit_count: n.edit_count, bug_count: n.bug_count }
+      raw: { content: n.content, filepath: n.filepath, edit_count: n.edit_count, bug_count: n.bug_count, activation: n.activation }
     });
   }
 

@@ -258,10 +258,43 @@ h2 {
   transition: r 0.2s, stroke-width 0.2s;
 }
 
+@keyframes neon-pulse {
+  0% {
+    filter: drop-shadow(0 0 2px var(--glow-color)) drop-shadow(0 0 4px var(--glow-color));
+  }
+  50% {
+    filter: drop-shadow(0 0 8px var(--glow-color)) drop-shadow(0 0 16px var(--glow-color));
+  }
+  100% {
+    filter: drop-shadow(0 0 2px var(--glow-color)) drop-shadow(0 0 4px var(--glow-color));
+  }
+}
+
+.node.active-glow {
+  animation: neon-pulse 2s infinite ease-in-out;
+  stroke: #ffffff !important;
+  stroke-width: 2px !important;
+}
+
 .link {
   fill: none;
   stroke-opacity: 0.2;
   transition: stroke-opacity 0.2s, stroke-width 0.2s;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+.link.active-flow {
+  stroke: #38bdf8 !important; /* neon cyan */
+  stroke-width: 2px !important;
+  stroke-opacity: 0.95 !important;
+  stroke-dasharray: 6, 4;
+  animation: dash 1s linear infinite;
+  filter: drop-shadow(0 0 3px #38bdf8);
 }
 
 .link.highlighted {
@@ -289,6 +322,7 @@ h2 {
   font-size: 12px;
   font-weight: 600;
   fill: var(--text-primary);
+  text-shadow: 0 0 4px var(--text-primary);
 }
 </style>
 </head>
@@ -312,6 +346,13 @@ h2 {
         <div class="stat-value" id="stat-files">0</div>
         <div class="stat-label">AST Files</div>
       </div>
+    </div>
+  </div>
+
+  <div id="active-resonance-section" style="display: none;">
+    <h2>Active Resonance</h2>
+    <div id="active-nodes-list" style="display: flex; flex-direction: column; gap: 8px; font-size: 11px; margin-top: 8px;">
+      <!-- Active nodes will be populated here -->
     </div>
   </div>
 
@@ -413,12 +454,40 @@ const rightPanel = document.getElementById("right-panel");
 document.getElementById("close-panel").onclick = () => rightPanel.classList.remove("active");
 
 function renderGraph(data) {
-  const nodes = data.nodes.map(d => ({ ...d }));
+  // Map active node energies to node payload size
+  const nodes = data.nodes.map(d => {
+    const act = d.raw?.activation || 0;
+    const baseSize = d.size || 10;
+    const size = Math.max(baseSize, act * 3.5 + baseSize);
+    return { ...d, size };
+  });
   const links = data.edges.map(d => ({ ...d }));
   
   // Set count stats
   document.getElementById("stat-memories").innerText = nodes.filter(n => n.group !== 'file' && n.group !== 'function').length;
   document.getElementById("stat-files").innerText = nodes.filter(n => n.group === 'file' || n.group === 'function').length;
+
+  // Render top active resonance nodes in sidebar
+  const activeNodes = nodes
+    .filter(n => n.raw?.activation > 0)
+    .sort((a, b) => (b.raw?.activation || 0) - (a.raw?.activation || 0));
+
+  const activeSec = document.getElementById("active-resonance-section");
+  const activeList = document.getElementById("active-nodes-list");
+  if (activeNodes.length > 0) {
+    activeSec.style.display = "block";
+    activeList.innerHTML = activeNodes.map(n => {
+      const color = colors[n.group] || "#aaa";
+      return `
+        <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); padding: 6px 10px; border-radius: 6px;">
+          <span style="color: ${color}; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px;">${n.label}</span>
+          <span style="background: ${color}; color: #000; font-weight: bold; font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 2px 6px; border-radius: 4px;">⚡ ${n.raw.activation.toFixed(1)}</span>
+        </div>
+      `;
+    }).join("");
+  } else {
+    activeSec.style.display = "none";
+  }
 
   const simulation = d3.forceSimulation(nodes)
     .force("link", d3.forceLink(links).id(d => d.id).distance(120).strength(0.4))
@@ -434,6 +503,15 @@ function renderGraph(data) {
     .attr("stroke", d => d.type === "caused_bug" ? "var(--neon-red)" : (d.type === "imports" ? "var(--neon-cyan)" : "rgba(100, 100, 200, 0.2)"))
     .attr("stroke-width", d => d.type === "caused_bug" ? 2.5 : 1.2)
     .attr("marker-end", d => `url(#arrow-${d.type})`);
+
+  // Classify links with active call edges
+  link.classed("active-flow", d => {
+    const srcNode = typeof d.source === "object" ? d.source : nodes.find(n => n.id === d.source);
+    const tgtNode = typeof d.target === "object" ? d.target : nodes.find(n => n.id === d.target);
+    const srcAct = srcNode?.raw?.activation || 0;
+    const tgtAct = tgtNode?.raw?.activation || 0;
+    return srcAct > 0.5 || tgtAct > 0.5;
+  });
 
   // Render nodes using custom shapes
   const node = g.append("g").selectAll(".node-element")
@@ -451,29 +529,36 @@ function renderGraph(data) {
   node.each(function(d) {
     const el = d3.select(this);
     const color = colors[d.group] || "#aaa";
+    let shape;
     if (d.group === "file") {
-      el.append("rect")
+      shape = el.append("rect")
         .attr("class", "node")
         .attr("x", -d.size)
         .attr("y", -d.size)
         .attr("width", d.size * 2)
         .attr("height", d.size * 2)
-        .attr("rx", 3)
+        .attr("rx", 4)
         .attr("fill", color)
         .attr("stroke", "rgba(255, 255, 255, 0.25)");
     } else if (d.group === "function") {
-      el.append("polygon")
+      shape = el.append("polygon")
         .attr("class", "node")
         .attr("points", `0,-${d.size * 1.2} ${d.size * 1.2},0 0,${d.size * 1.2} -${d.size * 1.2},0`)
         .attr("fill", color)
         .attr("stroke", "rgba(255, 255, 255, 0.25)");
     } else {
       // Memory nodes are circles
-      el.append("circle")
+      shape = el.append("circle")
         .attr("class", "node")
         .attr("r", d.size)
         .attr("fill", color)
         .attr("stroke", "rgba(255, 255, 255, 0.25)");
+    }
+
+    if (d.raw?.activation > 0) {
+      shape
+        .style("--glow-color", color)
+        .classed("active-glow", true);
     }
   });
 
@@ -482,6 +567,7 @@ function renderGraph(data) {
     .data(nodes)
     .join("text")
     .attr("class", "node-label")
+    .classed("active", d => d.raw?.activation > 0)
     .attr("dx", d => d.size + 6)
     .attr("dy", 4)
     .text(d => d.label.length > 30 ? d.label.slice(0, 30) + "..." : d.label);

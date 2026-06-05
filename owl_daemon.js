@@ -371,10 +371,12 @@ function resetIdleTimer() {
         .run(now, now, processed, merged);
       
       const evo = evolveDatabaseSchema("default");
-      console.log(`[OWL DAEMON] Dream cycle completed: merged ${merged} memories. Schema evolution: ${JSON.stringify(evo)}`);
+      const gly = pruneGlymphaticSubstrate("default");
+      console.log(`[OWL DAEMON] Dream cycle completed: merged ${merged} memories. Schema evolution: ${JSON.stringify(evo)}. Glymphatic: ${JSON.stringify(gly)}`);
       
       const evolvedCount = evo.evolutions_count || 0;
-      triggerWindowsNotification("OWL Substrate", `Autonomic dream cycle finished. Merged ${merged} semantic links. Evolved columns: ${evolvedCount}`);
+      const prunedCount = (gly.pruned_synapses || 0) + (gly.pruned_bugs || 0);
+      triggerWindowsNotification("OWL Substrate", `Dream cycle finished. Merged: ${merged}, Evolved: ${evolvedCount}, Pruned: ${prunedCount}. Database compacted.`);
     } catch (err) {
       console.error("[OWL DAEMON] Dream cycle failed:", err.message);
     }
@@ -450,6 +452,43 @@ function evolveDatabaseSchema(projectId) {
 
   } catch (err) {
     console.error(`[OWL DAEMON] Schema evolution failed: ${err.message}`);
+    return { status: "failed", error: err.message };
+  }
+}
+
+function pruneGlymphaticSubstrate(projectId) {
+  const now = new Date().toISOString();
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  
+  try {
+    console.log(`[OWL DAEMON] Executing Sleep-State Glymphatic Cleanup...`);
+    
+    // 1. Prune weak synaptic weights (weight < 0.12, inactive for 24 hours)
+    const synRes = db.prepare(`
+      DELETE FROM synaptic_weights 
+      WHERE attention_weight < 0.12 
+        AND last_transition < ?
+    `).run(yesterday);
+
+    // 2. Prune old resolved bugs (inactive for 48 hours)
+    const bugRes = db.prepare(`
+      DELETE FROM code_bugs 
+      WHERE is_active = 0 
+        AND created_at < ?
+    `).run(twoDaysAgo);
+
+    // 3. Compact database using VACUUM
+    db.exec("VACUUM");
+
+    console.log(`[OWL DAEMON] Glymphatic cleanup complete. Pruned ${synRes.changes} synapses and ${bugRes.changes} bugs.`);
+    return {
+      status: "completed",
+      pruned_synapses: synRes.changes,
+      pruned_bugs: bugRes.changes
+    };
+  } catch (err) {
+    console.error(`[OWL DAEMON] Glymphatic cleanup failed: ${err.message}`);
     return { status: "failed", error: err.message };
   }
 }
