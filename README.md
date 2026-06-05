@@ -131,5 +131,11 @@ Evaluating MCP servers is done using several industry standard frameworks such a
 
 ---
 
+## Future Vision: The Zero-Tool Substrate
+
+We believe the ultimate memory system is one where the agent has zero tools to call. For our first-principles cognitive architecture blueprint combining spreading activation, gravity, and surprise-gated writes, see [NEUROMORPHIC_SUBSTRATE.md](file:///c:/Users/shiva/hermes-custom-mcps/NEUROMORPHIC_SUBSTRATE.md).
+
+---
+
 ## License
 MIT License. Free to use, adapt, and distribute for the world.
