@@ -45,6 +45,16 @@ db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 db.pragma("synchronous = NORMAL");
 
+try {
+  db.exec("ALTER TABLE episodic_memories ADD COLUMN is_shareable INTEGER DEFAULT 0;");
+} catch(e) {}
+try {
+  db.exec("ALTER TABLE episodic_memories ADD COLUMN mesh_source_node TEXT;");
+} catch(e) {}
+try {
+  db.exec("ALTER TABLE episodic_memories ADD COLUMN original_content TEXT;");
+} catch(e) {}
+
 console.log(`[OWL DAEMON] Watching workspace: ${WORKSPACE_DIR}`);
 console.log(`[OWL DAEMON] Connected to DB: ${DB_PATH}`);
 
@@ -53,6 +63,8 @@ let lastSavedFileId = null;
 let lastSaveTime = 0;
 const debounceMap = new Map();
 let idleTimer = null;
+let lastBriefingDay = -1;
+let narrativeArc = "Spec";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function generateId(content, salt = "") {
@@ -191,6 +203,7 @@ function writeContextDeck(activeNodeId) {
     const dilated = getRefractoryDilation(activeNodeId);
     const now = new Date().toISOString();
     let md = `# OWL Memory Substrate Context Deck\n\n`;
+    md += `*Narrative Chapter: ${narrativeArc}*\n`;
     md += `*Last Updated: ${now}*\n`;
     md += `*Active Focus: \`${activeNodeId}\`*\n\n`;
     md += `> [!NOTE]\n`;
@@ -293,6 +306,7 @@ function handleFileChange(filePath) {
 
   // 3. Database Sync & OS Notification
   if (!isValid) {
+    narrativeArc = "Error";
     console.log(`[OWL DAEMON] Syntax failure in ${relPath}: ${syntaxError}`);
     
     // Look up past bug resolutions for matching error patterns
@@ -337,6 +351,7 @@ function handleFileChange(filePath) {
     // If it was broken and is now fixed, resolve the bugs
     const row = db.prepare("SELECT COUNT(*) as cnt FROM code_bugs WHERE file_path = ? AND is_active = 1").get(relPath);
     if (row && row.cnt > 0) {
+      narrativeArc = "Fix";
       db.prepare("UPDATE code_bugs SET is_active = 0, resolution = 'Resolved by save validation' WHERE file_path = ?").run(relPath);
       console.log(`[OWL DAEMON] Resolved active bugs for ${relPath}`);
       // ═══ Nerve Bridge: signal fix ═══
@@ -345,6 +360,8 @@ function handleFileChange(filePath) {
           .run("syntax_resolved", JSON.stringify({ file: relPath }), now);
       } catch(e) {}
       triggerWindowsNotification("OWL Info: Code Resolved", `${path.basename(relPath)} compiles successfully now.`);
+    } else {
+      narrativeArc = "Build";
     }
     
     // Update node content in db
@@ -367,13 +384,46 @@ function handleFileChange(filePath) {
 // ─── Idle Dream Cycle ────────────────────────────────────────────────────────
 function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer);
+  
+  // ═══ Innovation C: Circadian Rhythms ═══
+  const hour = new Date().getHours();
+  const isPeak = hour >= 9 && hour <= 17;
+  const idleWaitMs = isPeak ? 5 * 60 * 1000 : 2 * 60 * 1000;
+
   idleTimer = setTimeout(() => {
-    console.log("[OWL DAEMON] Workspace idle for 5 minutes. Triggering consolidation dream cycle...");
+    const today = new Date().getDay();
+    const currentHour = new Date().getHours();
+    if (currentHour >= 6 && currentHour <= 10 && lastBriefingDay !== today) {
+      lastBriefingDay = today;
+      triggerWindowsNotification("OWL Circadian Rhythm", "Morning Briefing: Substrate active. Peak cognitive state ready.");
+    }
+    
+    console.log(`[OWL DAEMON] Workspace idle for ${idleWaitMs/60000} minutes. Triggering delta introspection and dream cycle...`);
     try {
+      const now = new Date().toISOString();
+      
+      // ═══ Innovation 1: Zero-Prompt Delta Introspection ═══
+      let diffStat = "";
+      try {
+        // Look at git diff to see what changed recently
+        diffStat = execSync("git diff HEAD --stat", { cwd: WORKSPACE_DIR, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+      } catch (e) { }
+
+      if (diffStat && diffStat.length > 0) {
+        const memoryId = generateId(diffStat, "auto_checkpoint");
+        const content = `AUTO-CHECKPOINT: Developer paused for 3 minutes. Workspace changes detected:\n${diffStat}\nIntention: Uncommitted local modifications.`;
+        db.prepare(`
+          INSERT OR IGNORE INTO episodic_memories 
+          (id, content, event_type, project, salience, strength, created_at, updated_at) 
+          VALUES (?, ?, 'auto_checkpoint', 'default', 0.6, 1.0, ?, ?)
+        `).run(memoryId, content, now, now);
+        console.log(`[OWL DAEMON] Logged Zero-Prompt Delta Introspection checkpoint: ${memoryId}`);
+        triggerWindowsNotification("OWL Auto-Checkpoint", "Logged recent changes into memory silently.");
+      }
+
       // Connect to server or execute dream cycle logic locally
       // Local dream mock / trigger:
-      const now = new Date().toISOString();
-      const active = db.prepare("SELECT id, content, strength FROM episodic_memories WHERE is_active = 1").all();
+      const active = db.prepare("SELECT id, content, strength, generation, fitness_score, feynman_level, original_content FROM episodic_memories WHERE is_active = 1").all();
       let processed = 0, merged = 0;
       const processedIds = new Set();
       for (let i = 0; i < active.length; i++) {
@@ -387,8 +437,20 @@ function resetIdleTimer() {
           const union = new Set([...w1, ...w2]);
           const sim = inter.size / union.size;
           if (sim > 0.75) {
+            const gen = Math.max(m1.generation || 1, m2.generation || 1) + 1;
+            const fit = Math.min((m1.fitness_score || 0.5) + 0.1, 1.0);
+            
+            // ═══ Innovation H: Feynman Ladder Compression ═══
+            const newFeynman = Math.min((m1.feynman_level || 1) + 1, 5);
+            let newContent = m1.content;
+            let originalContent = m1.original_content || m1.content;
+            if (newFeynman >= 3) {
+              const words = Array.from(new Set(m1.content.split(/\W+/))).filter(w => w.length > 4);
+              newContent = `[L${newFeynman} Abstraction] ${words.slice(0, 20).join(' ')}`;
+            }
+
             db.prepare("UPDATE episodic_memories SET is_active = 0 WHERE id = ?").run(m2.id);
-            db.prepare("UPDATE episodic_memories SET strength = strength + 0.3 WHERE id = ?").run(m1.id);
+            db.prepare("UPDATE episodic_memories SET content = ?, original_content = ?, strength = strength + 0.3, generation = ?, fitness_score = ?, feynman_level = ? WHERE id = ?").run(newContent, originalContent, gen, fit, newFeynman, m1.id);
             processedIds.add(m2.id); merged++;
           }
         }
@@ -402,7 +464,7 @@ function resetIdleTimer() {
       console.log(`[OWL DAEMON] Dream cycle completed: merged ${merged} memories. Schema evolution: ${JSON.stringify(evo)}. Glymphatic: ${JSON.stringify(gly)}`);
       
       const evolvedCount = evo.evolutions_count || 0;
-      const prunedCount = (gly.pruned_synapses || 0) + (gly.pruned_bugs || 0);
+      const prunedCount = (gly.pruned_synapses || 0) + (gly.pruned_bugs || 0) + (gly.pruned_memories || 0);
 
       // ═══ Nerve Bridge: signal dream completion and glymphatic results ═══
       try {
@@ -420,7 +482,7 @@ function resetIdleTimer() {
       console.error("[OWL DAEMON] Dream cycle failed:", err.message);
     }
     resetIdleTimer();
-  }, 5 * 60 * 1000); // 5 minutes
+  }, idleWaitMs);
 }
 
 function evolveDatabaseSchema(projectId) {
@@ -517,14 +579,21 @@ function pruneGlymphaticSubstrate(projectId) {
         AND created_at < ?
     `).run(twoDaysAgo);
 
+    // 2.5 Evolutionary Genetics: Prune weak memories
+    const memRes = db.prepare(`
+      UPDATE episodic_memories SET is_active = 0 
+      WHERE fitness_score < 0.2 AND is_active = 1 AND created_at < ?
+    `).run(yesterday);
+
     // 3. Compact database using VACUUM
     db.exec("VACUUM");
 
-    console.log(`[OWL DAEMON] Glymphatic cleanup complete. Pruned ${synRes.changes} synapses and ${bugRes.changes} bugs.`);
+    console.log(`[OWL DAEMON] Glymphatic cleanup complete. Pruned ${synRes.changes} synapses, ${bugRes.changes} bugs, and ${memRes.changes} weak memories.`);
     return {
       status: "completed",
       pruned_synapses: synRes.changes,
-      pruned_bugs: bugRes.changes
+      pruned_bugs: bugRes.changes,
+      pruned_memories: memRes.changes
     };
   } catch (err) {
     console.error(`[OWL DAEMON] Glymphatic cleanup failed: ${err.message}`);

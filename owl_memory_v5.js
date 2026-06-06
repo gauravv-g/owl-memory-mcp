@@ -27,6 +27,7 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const { execSync } = require("child_process");
+const vm = require("vm");
 
 function getCurrentGitInfo(dirPath = ".") {
   try {
@@ -167,7 +168,8 @@ db.exec(`
     strength REAL DEFAULT 1.0, developmental_stage TEXT DEFAULT 'raw',
     access_count INTEGER DEFAULT 0, last_accessed TEXT, next_review TEXT, review_interval REAL DEFAULT 1.0,
     source TEXT DEFAULT 'conversation', mood_tag TEXT, metadata TEXT DEFAULT '{}',
-    is_active INTEGER DEFAULT 1, is_consolidated INTEGER DEFAULT 0
+    is_active INTEGER DEFAULT 1, is_consolidated INTEGER DEFAULT 0,
+    generation INTEGER DEFAULT 1, fitness_score REAL DEFAULT 0.5, feynman_level INTEGER DEFAULT 1
   );
   
   CREATE TABLE IF NOT EXISTS memory_git_branches (
@@ -380,7 +382,133 @@ db.exec(`
     total_sessions_analyzed INTEGER DEFAULT 0,
     updated_at TEXT NOT NULL
   );
+
+  -- ═══ Innovation E: Memory Programs (Executable Bug Vaccines) ═══
+  CREATE TABLE IF NOT EXISTS memory_programs (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    program_code TEXT NOT NULL,        -- Sandboxed JS function body
+    compiled_from_memory_ids TEXT DEFAULT '[]',
+    execution_count INTEGER DEFAULT 0,
+    true_positive_count INTEGER DEFAULT 0,
+    false_positive_count INTEGER DEFAULT 0,
+    precision_score REAL DEFAULT 0.5,
+    project TEXT DEFAULT 'default',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  -- ═══ Federated P2P Memory Mesh: Peer Registry ═══
+  CREATE TABLE IF NOT EXISTS mesh_peers (
+    node_id TEXT PRIMARY KEY,
+    display_name TEXT,
+    trust_level TEXT DEFAULT 'team',
+    last_seen TEXT NOT NULL,
+    memories_received INTEGER DEFAULT 0,
+    memories_shared INTEGER DEFAULT 0
+  );
+
+  -- ═══ Immunological Memory: Antigen Profiles ═══
+  CREATE TABLE IF NOT EXISTS package_antigen_profiles (
+    package_name TEXT NOT NULL,
+    package_version TEXT NOT NULL,
+    api_surface_hash TEXT NOT NULL,
+    risk_antigens TEXT DEFAULT '[]',
+    immune_status TEXT DEFAULT 'naive',
+    antibody_strength REAL DEFAULT 0.0,
+    first_exposure TEXT,
+    last_exposure TEXT,
+    PRIMARY KEY (package_name, package_version)
+  );
+
+  -- ═══ Narrative Templates ═══
+  CREATE TABLE IF NOT EXISTS narrative_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    stages TEXT NOT NULL,             -- JSON array of stages
+    stage_transitions TEXT NOT NULL,  -- JSON mapping of triggers
+    avg_duration_hours REAL,
+    success_rate REAL DEFAULT 0.5,
+    times_observed INTEGER DEFAULT 0
+  );
+
+  -- ═══ Active Narratives ═══
+  CREATE TABLE IF NOT EXISTS active_narratives (
+    id TEXT PRIMARY KEY,
+    template_id TEXT NOT NULL,
+    project TEXT NOT NULL,
+    current_stage TEXT NOT NULL,
+    stage_entered_at TEXT NOT NULL,
+    context TEXT DEFAULT '{}',
+    predicted_next_stage TEXT,
+    predicted_next_blocker TEXT,
+    started_at TEXT NOT NULL,
+    FOREIGN KEY(template_id) REFERENCES narrative_templates(id)
+  );
+
+  -- ═══ Feynman Ladder Cognitive Compression Levels ═══
+  CREATE TABLE IF NOT EXISTS cognitive_compression_levels (
+    id TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    compression_level INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    source_count INTEGER NOT NULL,
+    coverage REAL DEFAULT 0.0,
+    lossless INTEGER DEFAULT 0,
+    feynman_score REAL DEFAULT 0.0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  -- ═══ Memory Crystals Store ═══
+  CREATE TABLE IF NOT EXISTS memory_crystals (
+    id TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    crystal_type TEXT,
+    member_memory_ids TEXT DEFAULT '[]',
+    symmetry_score REAL DEFAULT 0.5,
+    growth_rate REAL DEFAULT 0.0,
+    lattice_connections TEXT DEFAULT '[]',
+    d3_position TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  -- ═══ Pythagorean Harmonic Analysis ═══
+  CREATE TABLE IF NOT EXISTS harmonic_analysis (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    function_to_line_ratio REAL,
+    bug_density REAL,
+    cyclomatic_complexity REAL,
+    cognitive_complexity REAL,
+    cc_ratio REAL,
+    harmony_score REAL,
+    dissonance_alert INTEGER DEFAULT 0,
+    analyzed_at TEXT NOT NULL
+  );
 `);
+
+try {
+  db.exec("ALTER TABLE episodic_memories ADD COLUMN generation INTEGER DEFAULT 1;");
+} catch(e) { /* Ignore if exists */ }
+try {
+  db.exec("ALTER TABLE episodic_memories ADD COLUMN fitness_score REAL DEFAULT 0.5;");
+} catch(e) { /* Ignore if exists */ }
+try {
+  db.exec("ALTER TABLE episodic_memories ADD COLUMN feynman_level INTEGER DEFAULT 1;");
+} catch(e) { /* Ignore if exists */ }
+try {
+  db.exec("ALTER TABLE episodic_memories ADD COLUMN is_shareable INTEGER DEFAULT 0;");
+} catch(e) { /* Ignore if exists */ }
+try {
+  db.exec("ALTER TABLE episodic_memories ADD COLUMN mesh_source_node TEXT;");
+} catch(e) { /* Ignore if exists */ }
+try {
+  db.exec("ALTER TABLE episodic_memories ADD COLUMN original_content TEXT;");
+} catch(e) { /* Ignore if exists */ }
 
 
 function calculateSimilarity(a, b) {
@@ -717,6 +845,40 @@ async function harvestErrorMusk(errorMessage, command = "test", projectId = "def
   return { status: "success", memory_id: memId, codeNodeId, surpriseScore };
 }
 
+// ═══ Innovation E: Memory Programs (Executable Vaccines) ═══
+function simulateMemoryPrograms(codeSnippet, projectId = "default") {
+  if (!codeSnippet) return [];
+  const programs = db.prepare("SELECT * FROM memory_programs WHERE project = ? AND precision_score > 0.4").all(projectId);
+  
+  const results = [];
+  for (const prog of programs) {
+    try {
+      const sandbox = { code: codeSnippet, result: null };
+      vm.createContext(sandbox);
+      const script = new vm.Script(`
+        const program = ${prog.program_code};
+        result = program(code);
+      `);
+      script.runInContext(sandbox, { timeout: 50 }); // 50ms hard limit
+      
+      if (sandbox.result && sandbox.result.triggered) {
+        results.push({
+          program_name: prog.name,
+          risk_score: sandbox.result.score || 0.8,
+          message: sandbox.result.message || prog.description,
+          program_id: prog.id
+        });
+        db.prepare("UPDATE memory_programs SET true_positive_count = true_positive_count + 1, execution_count = execution_count + 1 WHERE id = ?").run(prog.id);
+      } else {
+        db.prepare("UPDATE memory_programs SET execution_count = execution_count + 1 WHERE id = ?").run(prog.id);
+      }
+    } catch (e) {
+      console.error(`[OWL MEMORY] Memory program '${prog.name}' failed:`, e.message);
+    }
+  }
+  return results.sort((a, b) => b.risk_score - a.risk_score);
+}
+
 function checkContrarianSecrets(activeFile, codeSnippet, projectId = "default") {
   if (!activeFile) return [];
   const relPath = activeFile.replace(/\\/g, "/");
@@ -836,6 +998,7 @@ function checkDependencyStewardship(activeFile) {
         }
         alerts.push({
           package: steward.package_name,
+          pn: steward.package_name,
           error_count: steward.error_count,
           use_count: steward.use_count,
           crash_rate: Math.round(crashRate * 100) + "%",
@@ -843,8 +1006,27 @@ function checkDependencyStewardship(activeFile) {
           status: status,
           message: `Stewardship alert: [${steward.package_name}] has local crash rate of ${Math.round(crashRate * 100)}%. Avoid deploying without wrappers.`,
           warning: `Stewardship alert: [${steward.package_name}] has local crash rate of ${Math.round(crashRate * 100)}%. Avoid deploying without wrappers.`,
-          cb: circuitBreakerProposal
+          cb: circuitBreakerProposal,
+          circuit_breaker: circuitBreakerProposal
         });
+      }
+    } else {
+      // ═══ Innovation G: Immunological Memory ═══
+      // If we don't have data for this exact package, check its "family" (structural similarity via prefix)
+      const prefix = imp.target_id.split(/[-/]/)[0];
+      if (prefix && prefix.length > 3) {
+        const family = db.prepare("SELECT package_name, error_count, use_count FROM dependency_stewardship WHERE package_name LIKE ? AND package_name != ?").all(`${prefix}%`, imp.target_id);
+        
+        let familyErrors = 0, familyUses = 0;
+        for (const f of family) { familyErrors += f.error_count; familyUses += f.use_count; }
+        
+        if (familyUses > 0 && (familyErrors / familyUses) > 0.3) {
+          alerts.push({
+            package: imp.target_id,
+            status: "immunological_warning",
+            message: `Immunological Memory Alert: Though [${imp.target_id}] has no direct errors, its structural family '${prefix}-*' has a high crash rate (${Math.round((familyErrors/familyUses)*100)}%). Proceed with caution.`
+          });
+        }
       }
     }
   }
@@ -1384,8 +1566,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           action: {
             type: "string",
-            enum: ["perceive", "record", "cogitate", "act", "dream", "end_session", "resurrect", "echo"],
-            description: "The cognitive action. Use 'end_session' before ending a session. Use 'resurrect' as FIRST call in any new session. Use 'echo' to auto-store insights from an AI response."
+            enum: ["perceive", "record", "cogitate", "act", "dream", "end_session", "resurrect", "echo", "compile_vaccine", "oracle"],
+            description: "The cognitive action. Use 'end_session' before ending a session. Use 'compile_vaccine' to add executable bug checks. Use 'oracle' to fuse all signals into top 5 insights."
           },
           workspace_state: {
             type: "object",
@@ -1403,7 +1585,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             properties: {
               content: { type: "string" },
               event_type: { type: "string", enum: ["observation", "decision", "interaction", "learning", "error", "insight"] },
-              linked_code_nodes: { type: "array", items: { type: "string" } }
+              linked_code_nodes: { type: "array", items: { type: "string" } },
+              vaccine_code: { type: "string", description: "JS sandbox function returning {triggered: true/false, score: 0-1, message: string}." },
+              vaccine_name: { type: "string" }
             },
             required: ["content"]
           },
@@ -1596,6 +1780,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const healingMocks = calculateDaVinciHealing(activeNodeId);
         const hotspots = calculateRefactoringHotspots(projectId);
         const dilatedContext = getRefractoryDilation(activeNodeId, projectId);
+        const simulatedVaccines = simulateMemoryPrograms(codeSnippet, projectId);
 
         // ═══ Innovation 5: Daemon-MCP Nerve Bridge ═══
         // Flush unconsumed daemon signals — the background brain tells the AI brain what it noticed
@@ -1650,10 +1835,68 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               // Innovation 5: Daemon signals
               daemon_alerts: daemonAlerts,
               // Innovation 2: Cognitive echo suggestions
-              suggested_memories: suggestedMemories
+              suggested_memories: suggestedMemories,
+              // Innovation E: Simulated Vaccines
+              bug_vaccines: simulatedVaccines
             })
           }]
         };
+      }
+
+      if (action === "oracle") {
+        const state = args.workspace_state || {};
+        const activeFile = state.active_file;
+        const codeSnippet = state.code_snippet;
+        const activeNodeId = activeFile ? resolveActiveNode(activeFile, codeSnippet, projectId) : null;
+        
+        const signals = [];
+        
+        // 1. Tesla Resonance
+        const resonant = activeNodeId ? propagateTeslaResonance(activeNodeId) : [];
+        resonant.forEach(r => signals.push({ type: "resonance", score: r.voltage || 0.5, message: `Resonance with ${r.target}` }));
+        
+        // 2. Einstein Gravity
+        const gravity = activeNodeId ? calculateRelativisticGravity(activeNodeId, projectId) : [];
+        gravity.forEach(g => signals.push({ type: "gravity", score: g.gravity || 0.5, message: g.content.substring(0, 100) }));
+        
+        // 3. Thiel Contradictions & Tata Dependencies
+        const tw = checkContrarianSecrets(activeFile, codeSnippet, projectId);
+        tw.forEach(t => signals.push({ type: "contradiction", score: 0.9, message: t.message || t.assertion_text || "Contradiction found" }));
+        
+        const da = checkDependencyStewardship(activeFile);
+        da.forEach(d => signals.push({ type: "dependency", score: 0.8, message: d.message }));
+        
+        // 4. Memory Vaccines
+        const vaccines = simulateMemoryPrograms(codeSnippet, projectId);
+        vaccines.forEach(v => signals.push({ type: "vaccine", score: v.risk_score || 0.8, message: v.message }));
+        
+        // 5. Sort by score and apply Miller's Law (limit to top 5)
+        const oracleSignals = signals.sort((a, b) => b.score - a.score).slice(0, 5);
+        
+        // Innovation F: Epistemic Uncertainty
+        const epistemicBounds = {
+          staleness_warning: gravity.some(g => {
+            const ageDays = (new Date() - new Date(g.created_at)) / (1000 * 60 * 60 * 24);
+            return ageDays > 7;
+          }),
+          confidence_score: oracleSignals.length > 0 ? oracleSignals.reduce((sum, s) => sum + s.score, 0) / oracleSignals.length : 0.0,
+          known_unknowns: oracleSignals.length === 0 ? [`Zero signals detected for ${activeFile || 'current context'}. The substrate is blind here.`] : []
+        };
+        
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({ oracle_insights: oracleSignals, epistemic_bounds: epistemicBounds })
+          }]
+        };
+      }
+      if (action === "compile_vaccine") {
+        const memData = args.memory_data || {};
+        if (!memData.vaccine_code || !memData.vaccine_name) throw new Error("vaccine_code and vaccine_name required");
+        const id = generateId(memData.vaccine_code, "prog");
+        db.prepare("INSERT INTO memory_programs (id, name, description, program_code, project, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+          .run(id, memData.vaccine_name, memData.content, memData.vaccine_code, projectId, now, now);
+        return { content: [{ type: "text", text: `Vaccine compiled: ${id} (${memData.vaccine_name})` }] };
       }
 
       if (action === "record") {
