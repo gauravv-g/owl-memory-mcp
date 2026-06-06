@@ -287,101 +287,7 @@ db.exec(`
     source_metadata_key TEXT NOT NULL,
     applied_at TEXT NOT NULL
   );
-
-  -- ═══ Innovation 5: Daemon-MCP Nerve Bridge ═══
-  -- Background daemon writes signals here; nexus.perceive reads + flushes them
-  CREATE TABLE IF NOT EXISTS daemon_signals (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    signal_type TEXT NOT NULL,
-    payload TEXT DEFAULT '{}',
-    created_at TEXT NOT NULL,
-    consumed INTEGER DEFAULT 0
-  );
-
-  -- ═══ Innovation 1: Session Resurrection Protocol ═══
-  -- Written at end of session, read at start of next session
-  CREATE TABLE IF NOT EXISTS session_states (
-    id TEXT PRIMARY KEY,
-    project TEXT DEFAULT 'default',
-    summary TEXT NOT NULL,
-    last_file TEXT,
-    last_error TEXT,
-    pending_decisions TEXT DEFAULT '[]',
-    recent_memory_ids TEXT DEFAULT '[]',
-    emotional_tone TEXT DEFAULT 'neutral',
-    token_count INTEGER DEFAULT 0,
-    ended_at TEXT NOT NULL
-  );
-
-  -- ═══ Innovation 3: Token Ledger ═══
-  -- Tracks token costs saved vs injected per session
-  CREATE TABLE IF NOT EXISTS token_ledger (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project TEXT DEFAULT 'default',
-    tool_called TEXT NOT NULL,
-    tokens_injected INTEGER DEFAULT 0,
-    tokens_saved_estimate INTEGER DEFAULT 0,
-    created_at TEXT NOT NULL
-  );
-
-  -- ═══ Innovation A: Neocortex — Semantic Distillation Engine ═══
-  -- Auto-generated semantic abstractions from episodic memory clusters
-  CREATE TABLE IF NOT EXISTS semantic_distillations (
-    id TEXT PRIMARY KEY,
-    project TEXT DEFAULT 'default',
-    pattern TEXT NOT NULL,
-    source_memory_ids TEXT DEFAULT '[]',
-    strength REAL DEFAULT 1.0,
-    recall_count INTEGER DEFAULT 0,
-    outcome_score REAL DEFAULT 0.0,
-    fitness REAL DEFAULT 0.5,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  -- ═══ Innovation C: Stigmergy — Pheromone Trail Table ═══
-  CREATE TABLE IF NOT EXISTS pheromone_trails (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_memory_id TEXT,
-    action_type TEXT NOT NULL,
-    outcome TEXT CHECK(outcome IN ('success','failure','neutral')),
-    strength_delta REAL DEFAULT 0.0,
-    agent_id TEXT DEFAULT 'default',
-    project TEXT DEFAULT 'default',
-    created_at TEXT NOT NULL
-  );
-
-  -- ═══ Innovation B: Predictive Sensorium — Pre-computed context cache ═══
-  CREATE TABLE IF NOT EXISTS predictive_cache (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project TEXT DEFAULT 'default',
-    trigger_file TEXT,
-    predicted_contexts TEXT DEFAULT '[]',
-    pre_retrieved_memories TEXT DEFAULT '[]',
-    confidence REAL DEFAULT 0.5,
-    created_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    consumed INTEGER DEFAULT 0
-  );
-
-  -- ═══ Innovation D: Cognitive Fingerprint — Per-project behavioral model ═══
-  -- Updated every 10 dream cycles. Captures how you work, not just what you worked on.
-  CREATE TABLE IF NOT EXISTS cognitive_fingerprint (
-    id TEXT PRIMARY KEY,
-    project TEXT DEFAULT 'default',
-    work_style TEXT DEFAULT 'unknown',
-    peak_hour_start INTEGER DEFAULT 9,
-    peak_hour_end INTEGER DEFAULT 17,
-    avg_session_length_minutes REAL DEFAULT 60,
-    decision_reversal_rate REAL DEFAULT 0.0,
-    primary_memory_type TEXT DEFAULT 'observation',
-    mental_model_clusters TEXT DEFAULT '[]',
-    cognitive_style TEXT DEFAULT 'outcome-first',
-    total_sessions_analyzed INTEGER DEFAULT 0,
-    updated_at TEXT NOT NULL
-  );
 `);
-
 
 function calculateSimilarity(a, b) {
   const w1 = new Set(a.toLowerCase().split(/\W+/).filter(w => w.length > 2));
@@ -564,11 +470,9 @@ function getCodePathDistance(fromNode, toNode) {
 function propagateTeslaResonance(activeNodeId, steps = 15) {
   if (!activeNodeId) return [];
 
-  // Fetch all nodes in the codebase
   const allNodes = db.prepare("SELECT id FROM code_nodes").all().map(n => n.id);
   if (allNodes.length === 0) return [];
 
-  // Initialize displacements (u) and velocities (v)
   const u = {};
   const v = {};
   for (const id of allNodes) {
@@ -576,17 +480,14 @@ function propagateTeslaResonance(activeNodeId, steps = 15) {
     v[id] = 0.0;
   }
 
-  // Inject initial impulse (focus event) at activeNodeId
   if (u[activeNodeId] !== undefined) {
     u[activeNodeId] = 10.0;
   }
 
-  // Fetch weights of code_edges & synaptic_weights
   const edges = db.prepare("SELECT source_id, target_id, 1.0 as weight FROM code_edges").all();
   const synWeights = db.prepare("SELECT source_id, target_id, attention_weight as weight FROM synaptic_weights").all();
   const allEdges = edges.concat(synWeights);
 
-  // Group edges for fast adjacency lookup
   const adj = {};
   for (const id of allNodes) adj[id] = [];
   for (const e of allEdges) {
@@ -596,12 +497,10 @@ function propagateTeslaResonance(activeNodeId, steps = 15) {
     }
   }
 
-  // Wave simulation constants
   const dt = 0.15;
   const damping = 0.2; // Energy dissipation
   const stiffness = 0.6; // Coupling strength
 
-  // Solve spring-mass-damper wave propagation
   for (let step = 0; step < steps; step++) {
     const accelerations = {};
     for (const id of allNodes) {
@@ -618,7 +517,6 @@ function propagateTeslaResonance(activeNodeId, steps = 15) {
     }
   }
 
-  // Store final absolute displacements as the activation levels
   const nowTime = Date.now();
   for (const id of allNodes) {
     const act = Math.max(0, Math.abs(u[id]));
@@ -631,7 +529,6 @@ function propagateTeslaResonance(activeNodeId, steps = 15) {
     }
   }
 
-  // Find memories associated with active nodes
   const resonanceMemories = [];
   for (const id of allNodes) {
     const act = Math.max(0, Math.abs(u[id]));
@@ -686,7 +583,6 @@ async function harvestErrorMusk(errorMessage, command = "test", projectId = "def
   db.prepare("INSERT OR IGNORE INTO code_nodes (id, name, node_type, filepath, created_at, updated_at) VALUES (?, ?, 'function', ?, ?, ?)").run(codeNodeId, functionName, filepath, now, now);
   db.prepare("UPDATE code_nodes SET bug_count = bug_count + 1 WHERE id = ? OR id = ?").run(codeNodeId, filepath);
 
-  // Compute surprise: base failure probability on branch history
   const gitInfo = getCurrentGitInfo();
   const branchFailCount = db.prepare(`
     SELECT COUNT(*) as cnt FROM episodic_memories em
@@ -696,7 +592,6 @@ async function harvestErrorMusk(errorMessage, command = "test", projectId = "def
   
   const surpriseScore = branchFailCount === 0 ? 1.0 : Math.max(0.1, 1 / (branchFailCount + 1));
 
-  // Surprise spikes open write gates
   const memId = generateId(errorMessage, "musk");
   const emotional = detectEmotionalSalience(errorMessage);
   db.prepare(`
@@ -710,7 +605,6 @@ async function harvestErrorMusk(errorMessage, command = "test", projectId = "def
   db.prepare("INSERT OR REPLACE INTO memory_code_links (memory_id, code_node_id, link_type) VALUES (?, ?, 'caused_bug')").run(memId, codeNodeId);
   db.prepare("INSERT OR REPLACE INTO memory_code_links (memory_id, code_node_id, link_type) VALUES (?, ?, 'caused_bug')").run(memId, filepath);
 
-  // Auto register bug log
   db.prepare("INSERT OR IGNORE INTO code_bugs (id, bug_type, description, file_path, line_number, project, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .run(generateId(errorMessage, "bug"), "runtime_error", errorMessage.slice(0, 200), filepath, lineNumber, projectId, now);
 
@@ -736,14 +630,12 @@ function checkContrarianSecrets(activeFile, codeSnippet, projectId = "default") 
 
   const secrets = [];
   for (const ass of assertions) {
-    // 1. Direct links to this file/node
     const historicalFailures = db.prepare(`
       SELECT em.content, em.created_at FROM episodic_memories em
       JOIN memory_code_links mcl ON mcl.memory_id = em.id
       WHERE em.project = ? AND mcl.code_node_id LIKE ? AND em.event_type = 'error'
     `).all(projectId, `%${relPath}%`);
 
-    // 2. Project-wide keyword matches
     let matchingFails = [...historicalFailures];
     let projectFails = [];
     if (ass.type === "thread_safety") {
@@ -782,9 +674,9 @@ function checkContrarianSecrets(activeFile, codeSnippet, projectId = "default") 
 
     for (const fail of matchingFails) {
       secrets.push({
-        at: ass.type,
-        ax: ass.text,
-        ce: fail.content,
+        assertion_type: ass.type,
+        assertion_text: ass.text,
+        contradictory_evidence: fail.content,
         date_recorded: fail.created_at,
         message: `SECRET: Declared rule '${ass.text}' contradicts recorded local crash: '${fail.content}'.`
       });
@@ -839,11 +731,11 @@ function checkDependencyStewardship(activeFile) {
           error_count: steward.error_count,
           use_count: steward.use_count,
           crash_rate: Math.round(crashRate * 100) + "%",
-          tc: Math.round(trustCoefficient * 100) / 100,
+          trust_coefficient: Math.round(trustCoefficient * 100) / 100,
           status: status,
           message: `Stewardship alert: [${steward.package_name}] has local crash rate of ${Math.round(crashRate * 100)}%. Avoid deploying without wrappers.`,
           warning: `Stewardship alert: [${steward.package_name}] has local crash rate of ${Math.round(crashRate * 100)}%. Avoid deploying without wrappers.`,
-          cb: circuitBreakerProposal
+          circuit_breaker: circuitBreakerProposal
         });
       }
     }
@@ -853,21 +745,17 @@ function checkDependencyStewardship(activeFile) {
 
 function calculateDaVinciHealing(activeNodeId) {
   if (!activeNodeId) return null;
-  // Get downstream calls from this node
   const callees = db.prepare("SELECT target_id, edge_type FROM code_edges WHERE source_id = ?").all(activeNodeId);
   const recommendations = [];
 
   for (const callee of callees) {
-    // Check if this node has known bug logs
     const bug = db.prepare("SELECT * FROM code_bugs WHERE file_path LIKE ? AND is_active = 1").get(`%${callee.target_id}%`);
     if (bug) {
-      // Trace alternative paths (Self-Healing rerouting)
       const siblingNodes = db.prepare(`
         SELECT DISTINCT ce.target_id FROM code_edges ce
         WHERE ce.source_id = ? AND ce.target_id != ?
       `).all(activeNodeId, callee.target_id);
 
-      // Classify path type anatomically
       let pathType = "Circulatory (Data Stream)";
       if (callee.edge_type === "imports") pathType = "Skeletal (Import Schema)";
       if (callee.target_id.includes("event") || callee.target_id.includes("handler")) pathType = "Nervous (Event Callback)";
@@ -895,7 +783,6 @@ function mergeGitBranchMemories(sourceBranch, targetBranch, projectId = "default
   let contradictionCount = 0;
 
   for (const sm of sourceMems) {
-    // Check if this memory contradicts target branch memories
     const targets = db.prepare(`
       SELECT em.* FROM episodic_memories em
       JOIN memory_git_branches mgb ON mgb.memory_id = em.id
@@ -906,7 +793,6 @@ function mergeGitBranchMemories(sourceBranch, targetBranch, projectId = "default
     for (const tm of targets) {
       const sim = calculateSimilarity(sm.content, tm.content);
       if (sim > 0.4) {
-        // If one contains a negative assertion and other doesn't
         const neg = ["no", "not","no longer","disabled","remove","changed"];
         const smNeg = neg.some(w => sm.content.toLowerCase().includes(w));
         const tmNeg = neg.some(w => tm.content.toLowerCase().includes(w));
@@ -920,7 +806,6 @@ function mergeGitBranchMemories(sourceBranch, targetBranch, projectId = "default
     }
 
     if (!isConflict) {
-      // Copy memory context to target branch
       db.prepare("INSERT OR IGNORE INTO memory_git_branches (memory_id, branch_name, commit_sha) VALUES (?, ?, ?)")
         .run(sm.id, targetBranch, "merged");
       mergedCount++;
@@ -1035,21 +920,18 @@ function pruneGlymphaticSubstrate(projectId) {
   try {
     console.error(`[OWL SERVER] Executing Sleep-State Glymphatic Cleanup...`);
     
-    // 1. Prune weak synaptic weights (weight < 0.12, inactive for 24 hours)
     const synRes = db.prepare(`
       DELETE FROM synaptic_weights 
       WHERE attention_weight < 0.12 
         AND last_transition < ?
     `).run(yesterday);
 
-    // 2. Prune old resolved bugs (inactive for 48 hours)
     const bugRes = db.prepare(`
       DELETE FROM code_bugs 
       WHERE is_active = 0 
         AND created_at < ?
     `).run(twoDaysAgo);
 
-    // 3. Compact database using VACUUM
     db.exec("VACUUM");
 
     console.error(`[OWL SERVER] Glymphatic cleanup complete. Pruned ${synRes.changes} synapses and ${bugRes.changes} bugs.`);
@@ -1095,280 +977,6 @@ function chronoPruneWorkspace(projectId) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Innovation A: NEOCORTEX — Semantic Distillation Engine
-// The hippocampus stores episodes. The neocortex distills patterns.
-// This runs after every dream cycle, scanning episodic clusters
-// and auto-generating semantic abstractions from recurring themes.
-// ═══════════════════════════════════════════════════════════════
-function distillateNeocortex(projectId) {
-  const now = new Date().toISOString();
-  const distilled = [];
-
-  try {
-    // Group episodic memories by event_type + active file cluster
-    const episodics = db.prepare(
-      "SELECT id, content, event_type, strength, emotional_valence FROM episodic_memories WHERE project = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 200"
-    ).all(projectId);
-
-    if (episodics.length < 3) return { status: 'insufficient_memories', count: episodics.length };
-
-    // Group by event_type
-    const byType = {};
-    for (const m of episodics) {
-      const t = m.event_type || 'observation';
-      if (!byType[t]) byType[t] = [];
-      byType[t].push(m);
-    }
-
-    for (const [eventType, mems] of Object.entries(byType)) {
-      if (mems.length < 3) continue; // Need at least 3 episodes to distill a pattern
-
-      // Find clusters: memories that share high word overlap
-      const processed = new Set();
-      for (let i = 0; i < mems.length; i++) {
-        if (processed.has(mems[i].id)) continue;
-        const cluster = [mems[i]];
-        processed.add(mems[i].id);
-
-        for (let j = i + 1; j < mems.length; j++) {
-          if (processed.has(mems[j].id)) continue;
-          if (calculateSimilarity(mems[i].content, mems[j].content) > 0.35) {
-            cluster.push(mems[j]);
-            processed.add(mems[j].id);
-          }
-        }
-
-        if (cluster.length < 3) continue; // Not enough to form a pattern
-
-        // Distill: find the longest common significant words
-        const wordFreq = {};
-        for (const m of cluster) {
-          const words = m.content.toLowerCase().split(/\W+/).filter(w => w.length > 3);
-          for (const w of words) wordFreq[w] = (wordFreq[w] || 0) + 1;
-        }
-
-        const patternWords = Object.entries(wordFreq)
-          .filter(([, cnt]) => cnt >= Math.ceil(cluster.length * 0.5))
-          .sort(([, a], [, b]) => b - a)
-          .slice(0, 10)
-          .map(([w]) => w);
-
-        if (patternWords.length < 2) continue;
-
-        // Build the distilled pattern sentence
-        const avgValence = cluster.reduce((s, m) => s + m.emotional_valence, 0) / cluster.length;
-        const tone = avgValence > 0.2 ? 'positive' : avgValence < -0.2 ? 'negative' : 'neutral';
-        const pattern = `[${eventType.toUpperCase()} PATTERN — ${tone}] Recurring theme across ${cluster.length} episodes: ${patternWords.join(', ')}. Source IDs span ${cluster.length} distinct observations.`;
-
-        const distId = generateId(pattern, projectId + '_neocortex');
-
-        // Check if this pattern already exists (avoid duplication)
-        const existing = db.prepare("SELECT id FROM semantic_distillations WHERE id = ?").get(distId);
-        if (existing) {
-          // Strengthen existing pattern
-          db.prepare("UPDATE semantic_distillations SET strength = MIN(strength + 0.2, 5.0), updated_at = ? WHERE id = ?").run(now, distId);
-          distilled.push({ id: distId, action: 'strengthened', pattern: pattern.slice(0, 80) });
-        } else {
-          const avgStrength = cluster.reduce((s, m) => s + (m.strength || 1), 0) / cluster.length;
-          db.prepare(`
-            INSERT INTO semantic_distillations (id, project, pattern, source_memory_ids, strength, fitness, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 0.6, ?, ?)
-          `).run(distId, projectId, pattern, JSON.stringify(cluster.map(m => m.id)), avgStrength * 1.3, now, now);
-
-          // Also save to semantic_memories table (existing table) for recall integration
-          db.prepare(`
-            INSERT OR IGNORE INTO semantic_memories (id, content, concept_type, project, importance, confidence, is_active, created_at)
-            VALUES (?, ?, 'neocortex_pattern', ?, ?, 0.8, 1, ?)
-          `).run(distId, pattern, projectId, Math.min(avgStrength * 1.3, 3.0), now);
-
-          distilled.push({ id: distId, action: 'created', cluster_size: cluster.length, pattern: pattern.slice(0, 80) });
-        }
-      }
-    }
-
-    return { status: 'completed', patterns_created_or_strengthened: distilled.length, distilled };
-  } catch (err) {
-    console.error('[OWL NEOCORTEX] Distillation failed:', err.message);
-    return { status: 'failed', error: err.message };
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Innovation E: Memory Fitness Scoring (Darwinian selection)
-// Runs after dream cycle. Memories with low fitness get archived.
-// ═══════════════════════════════════════════════════════════════
-function applyMemoryFitnessSelection(projectId) {
-  try {
-    const mems = db.prepare(`
-      SELECT em.id, em.strength, em.content,
-             COALESCE(COUNT(mcl.code_node_id), 0) as link_count
-      FROM episodic_memories em
-      LEFT JOIN memory_code_links mcl ON mcl.memory_id = em.id
-      WHERE em.project = ? AND em.is_active = 1
-      GROUP BY em.id
-    `).all(projectId);
-
-    let archived = 0, strengthened = 0;
-    const now = new Date().toISOString();
-
-    for (const m of mems) {
-      // Fitness = strength (includes recall boosts) × link_density bonus
-      const linkBonus = Math.min(m.link_count * 0.1, 0.5);
-      const fitness = (m.strength || 1.0) + linkBonus;
-
-      if (fitness < 0.15) {
-        // Archive — not delete. The pattern may still be valuable.
-        db.prepare("UPDATE episodic_memories SET is_active = 0 WHERE id = ?").run(m.id);
-        archived++;
-      } else if (fitness > 2.5) {
-        // High-fitness memory: candidate for semantic promotion (already handled in neocortex)
-        db.prepare("UPDATE episodic_memories SET strength = MIN(strength + 0.05, 5.0) WHERE id = ?").run(m.id);
-        strengthened++;
-      }
-    }
-
-    return { archived, strengthened, total_evaluated: mems.length };
-  } catch (err) {
-    return { error: err.message };
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Innovation D: Cognitive Fingerprint — Behavioral Modeling
-// Called every 10 dream cycles. Reads session patterns and
-// computes a behavioral fingerprint: peak hours, primary memory
-// type, mental model clusters, decision reversal rate.
-// ═══════════════════════════════════════════════════════════════
-function updateCognitiveFingerprint(projectId) {
-  try {
-    const now = new Date().toISOString();
-
-    // Read last 50 session records
-    const sessions = db.prepare(
-      "SELECT summary, emotional_tone, ended_at, token_count FROM session_states WHERE project = ? ORDER BY ended_at DESC LIMIT 50"
-    ).all(projectId);
-
-    if (sessions.length === 0) {
-      return { status: "no_sessions_to_analyze" };
-    }
-
-    // Calculate peak hours from session ended_at timestamps
-    const hourCounts = {};
-    for (const s of sessions) {
-      try {
-        const hour = new Date(s.ended_at).getHours();
-        hourCounts[hour] = (hourCounts[hour] || 0) + 1;
-      } catch (e) {}
-    }
-
-    // Find peak hour window (top 2 hours)
-    const sortedHours = Object.entries(hourCounts).sort(([, a], [, b]) => b - a);
-    let peakHourStart = 9, peakHourEnd = 17;
-    if (sortedHours.length >= 2) {
-      const topHours = sortedHours.slice(0, 3).map(([h]) => parseInt(h)).sort((a, b) => a - b);
-      peakHourStart = topHours[0];
-      peakHourEnd = topHours[topHours.length - 1];
-    }
-
-    // Most common event_type = primary_memory_type
-    const typeCounts = {};
-    const recentMems = db.prepare(
-      "SELECT event_type FROM episodic_memories WHERE project = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 200"
-    ).all(projectId);
-    for (const m of recentMems) {
-      const t = m.event_type || "observation";
-      typeCounts[t] = (typeCounts[t] || 0) + 1;
-    }
-    const primaryMemoryType = Object.entries(typeCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || "observation";
-
-    // Decision reversal rate: decisions with actual_outcome != predicted_outcome
-    const totalDecisions = db.prepare("SELECT COUNT(*) as cnt FROM decisions WHERE project = ?").get(projectId)?.cnt || 0;
-    const reversals = db.prepare(
-      "SELECT COUNT(*) as cnt FROM decisions WHERE project = ? AND actual_outcome IS NOT NULL AND actual_outcome != predicted_outcome"
-    ).get(projectId)?.cnt || 0;
-    const decisionReversalRate = totalDecisions > 0 ? Math.round((reversals / totalDecisions) * 100) / 100 : 0;
-
-    // Mental model clusters: find files that are co-edited together
-    const coEditPairs = db.prepare(`
-      SELECT sw.source_id, sw.target_id, sw.co_occurrences
-      FROM synaptic_weights sw
-      WHERE sw.co_occurrences >= 3
-      ORDER BY sw.co_occurrences DESC LIMIT 10
-    `).all();
-    const clusterMap = {};
-    for (const pair of coEditPairs) {
-      const key = [pair.source_id, pair.target_id].sort().join(" <-> ");
-      clusterMap[key] = pair.co_occurrences;
-    }
-    const mentalModelClusters = Object.entries(clusterMap)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 5)
-      .map(([k, v]) => ({ files: k, co_edits: v }));
-
-    // Work style: error-heavy = debug-first, insight-heavy = exploration-first
-    const errorCount = typeCounts["error"] || 0;
-    const insightCount = typeCounts["insight"] || 0;
-    const decisionCount = typeCounts["decision"] || 0;
-    let workStyle = "balanced";
-    if (errorCount > insightCount * 2) workStyle = "debug-first";
-    else if (insightCount > errorCount * 2) workStyle = "exploration-first";
-    else if (decisionCount > (errorCount + insightCount)) workStyle = "decision-driven";
-
-    // Cognitive style
-    const avgValence = recentMems.length === 0 ? 0 :
-      (db.prepare("SELECT AVG(emotional_valence) as avg FROM episodic_memories WHERE project = ? AND is_active = 1").get(projectId)?.avg || 0);
-    const cognitiveStyle = avgValence > 0.1 ? "outcome-first" : avgValence < -0.1 ? "risk-aware" : "systematic";
-
-    // Average session token count as proxy for session length in minutes
-    const avgTokens = sessions.reduce((s, ss) => s + (ss.token_count || 0), 0) / sessions.length;
-    const avgSessionLengthMinutes = Math.round(avgTokens / 100 * 10) / 10 || 60;
-
-    // Write or update fingerprint
-    const fpId = `fp_${projectId}`;
-    const existing = db.prepare("SELECT id FROM cognitive_fingerprint WHERE id = ?").get(fpId);
-    if (existing) {
-      db.prepare(`
-        UPDATE cognitive_fingerprint SET
-          work_style = ?, peak_hour_start = ?, peak_hour_end = ?,
-          avg_session_length_minutes = ?, decision_reversal_rate = ?,
-          primary_memory_type = ?, mental_model_clusters = ?,
-          cognitive_style = ?, total_sessions_analyzed = ?, updated_at = ?
-        WHERE id = ?
-      `).run(workStyle, peakHourStart, peakHourEnd, avgSessionLengthMinutes,
-             decisionReversalRate, primaryMemoryType, JSON.stringify(mentalModelClusters),
-             cognitiveStyle, sessions.length, now, fpId);
-    } else {
-      db.prepare(`
-        INSERT INTO cognitive_fingerprint
-          (id, project, work_style, peak_hour_start, peak_hour_end, avg_session_length_minutes,
-           decision_reversal_rate, primary_memory_type, mental_model_clusters, cognitive_style,
-           total_sessions_analyzed, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(fpId, projectId, workStyle, peakHourStart, peakHourEnd, avgSessionLengthMinutes,
-             decisionReversalRate, primaryMemoryType, JSON.stringify(mentalModelClusters),
-             cognitiveStyle, sessions.length, now);
-    }
-
-    return {
-      status: "fingerprint_updated",
-      project: projectId,
-      work_style: workStyle,
-      peak_hours: `${peakHourStart}:00 - ${peakHourEnd}:00`,
-      primary_memory_type: primaryMemoryType,
-      decision_reversal_rate: decisionReversalRate,
-      mental_model_clusters: mentalModelClusters.length,
-      cognitive_style: cognitiveStyle,
-      sessions_analyzed: sessions.length
-    };
-  } catch (err) {
-    console.error("[OWL FINGERPRINT] updateCognitiveFingerprint failed:", err.message);
-    return { status: "failed", error: err.message };
-  }
-}
-
-
-
 const server = new Server(
   { name: "owl-memory", version: "5.0.0" },
   { capabilities: { tools: {}, resources: {} } }
@@ -1378,15 +986,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
       name: "nexus",
-      description: "The Single Unified Cognitive Interface. Collapses memory, call-graphs, context curvature (gravity), dependencies, and error harvesting into a single query. Actions: 'perceive' (sense workspace), 'record' (store memory), 'cogitate' (reason), 'act' (run command), 'dream' (consolidate), 'end_session' (save session state before ending), 'resurrect' (load last session at start), 'echo' (extract + store AI insights automatically).",
+      description: "The Single Unified Cognitive Interface. Collapses memory, call-graphs, context curvature (gravity), dependencies, and error harvesting into a single query. Action can be 'perceive', 'record', 'cogitate', 'act', or 'dream'.",
       inputSchema: {
         type: "object",
         properties: {
-          action: {
-            type: "string",
-            enum: ["perceive", "record", "cogitate", "act", "dream", "end_session", "resurrect", "echo"],
-            description: "The cognitive action. Use 'end_session' before ending a session. Use 'resurrect' as FIRST call in any new session. Use 'echo' to auto-store insights from an AI response."
-          },
+          action: { type: "string", enum: ["perceive", "record", "cogitate", "act", "dream"], description: "The cognitive/operational action to perform." },
           workspace_state: {
             type: "object",
             description: "Used for 'perceive' and 'act'. Current editor / file state.",
@@ -1428,12 +1032,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             },
             required: ["command"]
           },
-          // end_session params
-          session_summary: { type: "string", description: "One-sentence summary of what was accomplished this session. Used by 'end_session'." },
-          // resurrect params
-          format: { type: "string", enum: ["full", "brief"], description: "'brief' returns a compact system-prompt-injectable handoff. Default: 'full'." },
-          // echo params
-          ai_output: { type: "string", description: "The AI response text to extract memories from. Used by 'echo'." },
           project: { type: "string", default: "default" }
         },
         required: ["action"]
@@ -1452,11 +1050,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "get_stats",
       description: "Get database stats.",
-      inputSchema: { type: "object", properties: { project: { type: "string", default: "default" } } }
-    },
-    {
-      name: "get_ledger",
-      description: "Get token savings report. Shows how many tokens OWL has saved vs injected across all sessions.",
       inputSchema: { type: "object", properties: { project: { type: "string", default: "default" } } }
     },
     {
@@ -1494,39 +1087,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         content: m.content,
         score: Math.round(calculateSimilarity(query, m.content) * 100) / 100
       })).sort((a, b) => b.score - a.score).slice(0, 10);
-      // Log token usage for ledger
-      const tokensInjected = Math.round(JSON.stringify(matches).length / 4);
-      db.prepare(
-        "INSERT INTO token_ledger (project, tool_called, tokens_injected, tokens_saved_estimate, created_at) VALUES (?, 'recall', ?, ?, ?)"
-      ).run(projectId, tokensInjected, tokensInjected * 10, now);
       return { content: [{ type: "text", text: JSON.stringify(matches) }] };
-    }
-
-    // ═══ Innovation 3: Token Ledger ═══
-    if (name === "get_ledger") {
-      const ledger = db.prepare(
-        "SELECT tool_called, SUM(tokens_injected) as injected, SUM(tokens_saved_estimate) as saved, COUNT(*) as calls FROM token_ledger WHERE project = ? GROUP BY tool_called"
-      ).all(projectId);
-      const totals = db.prepare(
-        "SELECT SUM(tokens_injected) as total_injected, SUM(tokens_saved_estimate) as total_saved, COUNT(*) as total_calls FROM token_ledger WHERE project = ?"
-      ).get(projectId);
-      const totalSaved = totals ? (totals.total_saved || 0) : 0;
-      const totalInjected = totals ? (totals.total_injected || 0) : 0;
-      const ratio = totalInjected > 0 ? Math.round((totalSaved / totalInjected) * 10) / 10 : 0;
-      // Rough cost estimate at $3/1M tokens (Claude Sonnet)
-      const dollarsSaved = (totalSaved / 1_000_000 * 3).toFixed(4);
-      return { content: [{ type: "text", text: JSON.stringify({
-        project: projectId,
-        summary: {
-          total_tokens_injected_by_owl: totalInjected,
-          total_tokens_saved_estimate: totalSaved,
-          efficiency_ratio: `${ratio}x`,
-          estimated_dollars_saved: `$${dollarsSaved}`,
-          total_owl_calls: totals ? totals.total_calls : 0
-        },
-        by_tool: ledger,
-        note: "Tokens saved = estimated context tokens that would have been spent without OWL memory injection."
-      }) }] };
     }
 
     if (name === "get_stats") {
@@ -1539,7 +1100,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     if (name === "index_codebase") {
       const scanPath = args.scan_path;
-      // Register files dynamically
       const files = [];
       function recurse(dir) {
         if (!fs.existsSync(dir)) return;
@@ -1563,7 +1123,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: "text", text: JSON.stringify({ status: "indexed", total_files: files.length }) }] };
     }
 
-    // ═══ NEXUS COGNITIVE ENGINE ═══
     if (name === "nexus") {
       const action = args.action;
 
@@ -1584,7 +1143,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           lastFocusedNodeId = activeNodeId;
         }
 
-        // Intercept compile/build error immediately
         if (terminalOutput && (terminalOutput.includes("Error") || terminalOutput.includes("Exception") || terminalOutput.includes("failed"))) {
           await harvestErrorMusk(terminalOutput, "auto_intercept", projectId);
         }
@@ -1597,61 +1155,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const hotspots = calculateRefactoringHotspots(projectId);
         const dilatedContext = getRefractoryDilation(activeNodeId, projectId);
 
-        // ═══ Innovation 5: Daemon-MCP Nerve Bridge ═══
-        // Flush unconsumed daemon signals — the background brain tells the AI brain what it noticed
-        const daemonAlerts = db.prepare(
-          "SELECT id, signal_type, payload, created_at FROM daemon_signals WHERE consumed = 0 ORDER BY created_at ASC LIMIT 20"
-        ).all().map(s => {
-          try { return { type: s.signal_type, data: JSON.parse(s.payload), at: s.created_at }; }
-          catch(e) { return { type: s.signal_type, data: s.payload, at: s.created_at }; }
-        });
-        if (daemonAlerts.length > 0) {
-          db.prepare("UPDATE daemon_signals SET consumed = 1 WHERE consumed = 0").run();
-        }
-
-        // ═══ Innovation 2: Cognitive Echo — suggested memories from perceive context ═══
-        const suggestedMemories = [];
-        // If there are active threat warnings, suggest storing them as memories
-        for (const tw of secretContradictions.slice(0, 2)) {
-          suggestedMemories.push({
-            content: `Contradiction detected: ${tw.message || tw.assertion_text || JSON.stringify(tw).slice(0, 120)}`,
-            event_type: "insight",
-            confidence: 0.9,
-            reason: "Thiel contradiction check fired"
-          });
-        }
-        // If there are high-gravity memories surfaced, note the top one
-        if (gravityContext.length > 0 && gravityContext[0].gravity > 0.5) {
-          suggestedMemories.push({
-            content: `High-gravity context active: ${gravityContext[0].content.slice(0, 120)}`,
-            event_type: "observation",
-            confidence: 0.7,
-            reason: "Einstein gravity > 0.5 — this memory is pulling hard on the current context"
-          });
-        }
-
-        // Log token usage for ledger
-        const tokensInjected = JSON.stringify({ gravityContext, resonantContext, daemonAlerts }).length / 4;
-        db.prepare(
-          "INSERT INTO token_ledger (project, tool_called, tokens_injected, tokens_saved_estimate, created_at) VALUES (?, 'nexus.perceive', ?, ?, ?)"
-        ).run(projectId, Math.round(tokensInjected), Math.round(tokensInjected * 12), now);
-
         return {
           content: [{
             type: "text",
             text: JSON.stringify({
-              a: activeNodeId,
-              gravity_memories: gravityContext,
-              resonant_memories: resonantContext,
-              tw: secretContradictions.concat(dependencyAlerts),
-              rh: hotspots,
-              healing_suggestions: healingMocks,
-              dc: dilatedContext,
-              // Innovation 5: Daemon signals
-              daemon_alerts: daemonAlerts,
-              // Innovation 2: Cognitive echo suggestions
-              suggested_memories: suggestedMemories
-            })
+              active_node_id: activeNodeId,
+              context_memories: gravityContext,
+              resonance_memories: resonantContext,
+              threat_warnings: secretContradictions.concat(dependencyAlerts),
+              refactoring_hotspots: hotspots,
+              self_healing_suggestions: healingMocks,
+              dilated_context: dilatedContext
+            }, null, 2)
           }]
         };
       }
@@ -1732,7 +1247,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           code = err.status || 1;
         }
 
-        // If command failed, automatically harvest errors and learn (Elon Musk)
         let harvestResult = null;
         if (code !== 0) {
           const errorLog = stderr || stdout;
@@ -1743,11 +1257,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           content: [{
             type: "text",
             text: JSON.stringify({
-              ec: code,
+              exit_code: code,
               stdout: stdout.slice(0, 1000),
               stderr: stderr.slice(0, 1000),
-              sh2: harvestResult
-            })
+              surprise_harvest: harvestResult
+            }, null, 2)
           }]
         };
       }
@@ -1758,730 +1272,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const evo = evolveDatabaseSchema(projectId);
         const gly = pruneGlymphaticSubstrate(projectId);
         const torvalds = chronoPruneWorkspace(projectId);
-
-        // ═══ Phase 1: Neocortex Distillation ═══
-        const neocortex = distillateNeocortex(projectId);
-
-        // ═══ Phase 3: Memory Fitness Selection (Darwinian) ═══
-        const fitness = applyMemoryFitnessSelection(projectId);
-
-        // ═══ Phase 4: Innovation D — Update Cognitive Fingerprint ═══
-        const fingerprint = updateCognitiveFingerprint(projectId);
-
-        // Write a daemon signal so the next perceive picks this up
-        db.prepare("INSERT INTO daemon_signals (signal_type, payload, created_at, consumed) VALUES ('dream_completed', ?, ?, 0)")
-          .run(JSON.stringify({
-            merged: rep.merged,
-            pruned: rep.pruned,
-            schema_evolutions: evo.evolutions_count || 0,
-            neocortex_patterns: neocortex.patterns_created_or_strengthened || 0,
-            memories_archived_by_fitness: fitness.archived || 0,
-            fingerprint_updated: fingerprint.status === "fingerprint_updated"
-          }), now);
-
-        return { content: [{ type: "text", text: JSON.stringify({
-          status: "dream_cycle_completed",
-          consolidation: rep,
-          simulation: sim,
-          schema_evolution: evo,
-          glymphatic_cleanup: gly,
-          torvalds_chrono_pruner: torvalds,
-          neocortex_distillation: neocortex,
-          fitness_selection: fitness,
-          cognitive_fingerprint: fingerprint
-        }) }] };
-      }
-
-      // ═══ Innovation 1: Session Resurrection — end_session ═══
-      // Call this at the end of every session to snapshot state for the next AI
-      if (action === "end_session") {
-        const summary = args.session_summary || "Session ended without summary.";
-        const sessionId = generateId(summary + now, "session");
-
-        // Capture the 5 most recent memories
-        const recentMems = db.prepare(
-          "SELECT id FROM episodic_memories WHERE project = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 5"
-        ).all(projectId).map(m => m.id);
-
-        // Capture any pending (unresolved) decisions
-        const pendingDecisions = db.prepare(
-          "SELECT title, context FROM decisions WHERE project = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 3"
-        ).all(projectId);
-
-        // Get last error in this project
-        const lastError = db.prepare(
-          "SELECT content FROM episodic_memories WHERE project = ? AND event_type = 'error' AND is_active = 1 ORDER BY created_at DESC LIMIT 1"
-        ).get(projectId);
-
-        // Detect emotional tone from recent memories
-        const recentEmotions = db.prepare(
-          "SELECT emotional_valence FROM episodic_memories WHERE project = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 10"
-        ).all(projectId);
-        const avgValence = recentEmotions.length
-          ? recentEmotions.reduce((s, m) => s + m.emotional_valence, 0) / recentEmotions.length
-          : 0;
-        const emotionalTone = avgValence > 0.2 ? "productive" : avgValence < -0.2 ? "frustrated" : "neutral";
-
-        // Get the file that was most active (highest edit_count recently)
-        const lastFile = lastFocusedNodeId || null;
-
-        db.prepare(`
-          INSERT OR REPLACE INTO session_states
-            (id, project, summary, last_file, last_error, pending_decisions, recent_memory_ids, emotional_tone, token_count, ended_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          sessionId,
-          projectId,
-          summary,
-          lastFile,
-          lastError ? lastError.content.slice(0, 200) : null,
-          JSON.stringify(pendingDecisions),
-          JSON.stringify(recentMems),
-          emotionalTone,
-          0,
-          now
-        );
-
-        return { content: [{ type: "text", text: JSON.stringify({
-          status: "session_saved",
-          session_id: sessionId,
-          summary,
-          last_file: lastFile,
-          emotional_tone: emotionalTone,
-          pending_decisions: pendingDecisions.length,
-          message: "Session state saved. Next AI session can call nexus.resurrect to restore full context."
-        }) }] };
-      }
-
-      // ═══ Innovation 1 + B + C + D + F: Session Resurrection — resurrect ═══
-      // Call this as the FIRST action in any new session
-      if (action === "resurrect") {
-        const format = args.format || "full";
-
-        // Get the most recent session state for this project
-        const lastSession = db.prepare(
-          "SELECT * FROM session_states WHERE project = ? ORDER BY ended_at DESC LIMIT 1"
-        ).get(projectId);
-
-        // Get cumulative token savings
-        const ledger = db.prepare(
-          "SELECT SUM(tokens_injected) as total_injected, SUM(tokens_saved_estimate) as total_saved FROM token_ledger WHERE project = ?"
-        ).get(projectId);
-        const totalSaved = ledger ? (ledger.total_saved || 0) : 0;
-        const totalInjected = ledger ? (ledger.total_injected || 0) : 0;
-
-        // Get active threat patterns
-        const threats = db.prepare(
-          "SELECT pattern_name, description FROM threat_patterns WHERE is_active = 1 LIMIT 3"
-        ).all();
-
-        // Log this resurrection for the ledger
-        const resurrectionTokens = lastSession ? JSON.stringify(lastSession).length / 4 : 50;
-        db.prepare(
-          "INSERT INTO token_ledger (project, tool_called, tokens_injected, tokens_saved_estimate, created_at) VALUES (?, 'nexus.resurrect', ?, ?, ?)"
-        ).run(projectId, Math.round(resurrectionTokens), Math.round(resurrectionTokens * 15), now);
-
-        // ─── Innovation B: Check predictive_cache ───
-        let predictiveContextPreLoaded = false;
-        let predictivePreloadedMemories = [];
-        let predictiveTriggerFile = null;
-        try {
-          const pcRow = db.prepare(`
-            SELECT * FROM predictive_cache
-            WHERE project = ? AND consumed = 0 AND expires_at > ?
-            ORDER BY created_at DESC LIMIT 1
-          `).get(projectId, now);
-          if (pcRow) {
-            predictiveContextPreLoaded = true;
-            predictiveTriggerFile = pcRow.trigger_file;
-            predictivePreloadedMemories = JSON.parse(pcRow.pre_retrieved_memories || "[]");
-            db.prepare("UPDATE predictive_cache SET consumed = 1 WHERE id = ?").run(pcRow.id);
-          }
-        } catch (e) {}
-
-        // ─── Innovation C (Full): Cross-agent pheromone activity ───
-        let otherAgentActivity = [];
-        try {
-          const agentId = args.agent_id || "default";
-          const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 3600000).toISOString();
-          otherAgentActivity = db.prepare(`
-            SELECT agent_id, action_type, outcome, created_at, source_memory_id
-            FROM pheromone_trails
-            WHERE project = ? AND agent_id != ? AND created_at > ?
-            ORDER BY created_at DESC LIMIT 5
-          `).all(projectId, agentId, sevenDaysAgo);
-        } catch (e) {}
-
-        // ─── Innovation D: Cognitive fingerprint ───
-        let cognitiveContext = null;
-        try {
-          const fp = db.prepare("SELECT * FROM cognitive_fingerprint WHERE id = ?").get(`fp_${projectId}`);
-          if (fp) {
-            const currentHour = new Date().getHours();
-            const isPeakWindow = currentHour >= fp.peak_hour_start && currentHour <= fp.peak_hour_end;
-            cognitiveContext = {
-              work_style: fp.work_style,
-              cognitive_style: fp.cognitive_style,
-              primary_memory_type: fp.primary_memory_type,
-              peak_window: `${fp.peak_hour_start}:00 - ${fp.peak_hour_end}:00`,
-              is_peak_now: isPeakWindow,
-              decision_reversal_rate: fp.decision_reversal_rate,
-              mental_model_clusters: JSON.parse(fp.mental_model_clusters || "[]"),
-              message: isPeakWindow
-                ? `You're in your peak quality window (${fp.peak_hour_start}:00-${fp.peak_hour_end}:00). Your style: ${fp.cognitive_style}.`
-                : `Outside peak window. Your peak is ${fp.peak_hour_start}:00-${fp.peak_hour_end}:00. Style: ${fp.cognitive_style}.`
-            };
-          }
-        } catch (e) {}
-
-        // ─── Innovation F: Onboarding brief for new projects ───
-        if (!lastSession) {
-          // First time for this project — build onboarding brief from any existing data
-          let onboardingBrief = {
-            status: "onboarding",
-            message: "First session for this project. Building context from available data.",
-            project: projectId
-          };
-          try {
-            const distillations = db.prepare(
-              "SELECT pattern FROM semantic_distillations WHERE project = ? ORDER BY strength DESC LIMIT 5"
-            ).all(projectId);
-            const criticalFiles = db.prepare(
-              "SELECT id, filepath, bug_count, edit_count FROM code_nodes WHERE project = ? ORDER BY bug_count DESC LIMIT 5"
-            ).all(projectId);
-            const knownBugs = db.prepare(
-              "SELECT description, file_path FROM code_bugs WHERE project = ? AND is_active = 1 LIMIT 3"
-            ).all(projectId);
-            const keyDecisions = db.prepare(
-              "SELECT title, context, chosen_option FROM decisions WHERE project = ? ORDER BY created_at DESC LIMIT 3"
-            ).all(projectId);
-            onboardingBrief = {
-              status: "onboarding",
-              message: "First session for this project. Here is what OWL already knows:",
-              project: projectId,
-              known_patterns: distillations.map(d => d.pattern.slice(0, 150)),
-              critical_files: criticalFiles,
-              known_bugs: knownBugs,
-              key_architectural_decisions: keyDecisions,
-              instruction: "You are now oriented. Proceed with full awareness of the project's known state."
-            };
-          } catch (e) {}
-          return { content: [{ type: "text", text: JSON.stringify(onboardingBrief) }] };
-        }
-
-        const hoursAgo = Math.round((Date.now() - new Date(lastSession.ended_at).getTime()) / 3600000);
-        const pendingDecisions = JSON.parse(lastSession.pending_decisions || "[]");
-        const recentMemoryIds = JSON.parse(lastSession.recent_memory_ids || "[]");
-
-        // Check for pending handoff to this agent
-        let incomingHandoff = null;
-        try {
-          const handoffRow = db.prepare(`
-            SELECT payload FROM pheromone_trails
-            WHERE project = ? AND action_type = 'explicit_handoff'
-            ORDER BY created_at DESC LIMIT 1
-          `).get(projectId);
-          if (handoffRow) {
-            incomingHandoff = JSON.parse(handoffRow.payload || "{}");
-          }
-        } catch (e) {}
-
-        // Fetch content of recent memories
-        const recentMemories = recentMemoryIds.map(id => {
-          const m = db.prepare("SELECT content, event_type FROM episodic_memories WHERE id = ?").get(id);
-          return m ? { content: m.content.slice(0, 150), type: m.event_type } : null;
-        }).filter(Boolean);
-
-        // Merge predictive pre-loaded memories with recent memories
-        const allContextMemories = [...recentMemories];
-        for (const pm of predictivePreloadedMemories) {
-          if (!allContextMemories.some(m => m.content === pm.content)) {
-            allContextMemories.push({ content: pm.content, type: pm.event_type, source: "predictive_cache" });
-          }
-        }
-
-        if (format === "brief") {
-          // Compact, system-prompt-injectable format — under 400 tokens
-          const briefLines = [
-            `=== OWL SESSION HANDOFF === Project: ${projectId} | ${hoursAgo}h ago | Tone: ${lastSession.emotional_tone}`,
-            `LAST WORKED ON: ${lastSession.summary}`,
-            lastSession.last_file ? `ACTIVE FILE: ${lastSession.last_file}` : "",
-            lastSession.last_error ? `LAST ERROR: ${lastSession.last_error.slice(0, 120)}` : "",
-            pendingDecisions.length ? `PENDING DECISIONS: ${pendingDecisions.map(d => d.title).join(" | ")}` : "",
-            threats.length ? `ACTIVE THREATS: ${threats.map(t => t.pattern_name).join(" | ")}` : "",
-            predictiveContextPreLoaded ? `PREDICTIVE CONTEXT: ${predictivePreloadedMemories.length} memories pre-loaded from file ${predictiveTriggerFile}` : "",
-            cognitiveContext ? `COGNITIVE CONTEXT: ${cognitiveContext.message}` : "",
-            `TOKEN SAVINGS TO DATE: ~${Math.round(totalSaved / 1000)}k tokens saved`,
-            `=== END HANDOFF ===`
-          ].filter(l => l).join("\n");
-          return { content: [{ type: "text", text: briefLines }] };
-        }
-
-        // Full format
-        return { content: [{ type: "text", text: JSON.stringify({
-          status: "resurrected",
-          hours_since_last_session: hoursAgo,
-          predictive_context_pre_loaded: predictiveContextPreLoaded,
-          predictive_trigger_file: predictiveTriggerFile,
-          identity: {
-            project: projectId,
-            last_worked_on: lastSession.summary,
-            emotional_tone_last_session: lastSession.emotional_tone
-          },
-          state: {
-            last_active_file: lastSession.last_file,
-            last_error: lastSession.last_error,
-            pending_decisions: pendingDecisions,
-            recent_memories: allContextMemories
-          },
-          other_agent_activity: otherAgentActivity,
-          incoming_handoff: incomingHandoff,
-          cognitive_context: cognitiveContext,
-          warnings: threats,
-          efficiency: {
-            total_tokens_saved: totalSaved,
-            total_tokens_injected: totalInjected,
-            efficiency_ratio: totalInjected > 0 ? Math.round((totalSaved / totalInjected) * 10) / 10 : 0,
-            message: `OWL has saved approximately ${Math.round(totalSaved / 1000)}k tokens for this project.`
-          },
-          instruction: "You are now fully context-aware. Proceed without re-asking the user for context."
-        }) }] };
-      }
-
-      // ═══ Innovation C (Full): Agent Handoff — explicit cross-agent handoff ═══
-      if (action === "agent_handoff") {
-        try {
-          const toAgentId = args.to_agent_id || "unknown_agent";
-          const taskSummary = args.task_summary || args.session_summary || "";
-          const filesInvolved = args.files_involved || [];
-
-          const handoffPayload = {
-            from_agent_id: args.agent_id || "default",
-            to_agent_id: toAgentId,
-            task_summary: taskSummary,
-            files_involved: filesInvolved,
-            handoff_at: now
-          };
-
-          // Write to pheromone_trails with action_type = 'explicit_handoff'
-          db.prepare(`
-            INSERT INTO pheromone_trails (source_memory_id, action_type, outcome, strength_delta, agent_id, project, created_at)
-            VALUES (?, 'explicit_handoff', 'neutral', 0.0, ?, ?, ?)
-          `).run(null, toAgentId, projectId, now);
-
-          // Also write a daemon signal so next perceive surfaces it
-          db.prepare("INSERT INTO daemon_signals (signal_type, payload, created_at, consumed) VALUES ('agent_handoff', ?, ?, 0)")
-            .run(JSON.stringify(handoffPayload), now);
-
-          return { content: [{ type: "text", text: JSON.stringify({
-            status: "handoff_recorded",
-            to_agent: toAgentId,
-            task_summary: taskSummary,
-            files_involved: filesInvolved,
-            message: `Handoff recorded. Agent '${toAgentId}' will see this on their first resurrect call.`
-          }) }] };
-        } catch (err) {
-          return { content: [{ type: "text", text: JSON.stringify({ status: "error", error: err.message }) }] };
-        }
-      }
-
-      // ═══ Innovation D: Get Fingerprint ═══
-      if (action === "get_fingerprint") {
-        try {
-          const fp = db.prepare("SELECT * FROM cognitive_fingerprint WHERE id = ?").get(`fp_${projectId}`);
-          if (!fp) {
-            return { content: [{ type: "text", text: JSON.stringify({
-              status: "no_fingerprint",
-              message: "No cognitive fingerprint yet. Run nexus.dream at least once to generate it.",
-              project: projectId
-            }) }] };
-          }
-          return { content: [{ type: "text", text: JSON.stringify({
-            status: "found",
-            project: projectId,
-            fingerprint: {
-              work_style: fp.work_style,
-              peak_hours: `${fp.peak_hour_start}:00 - ${fp.peak_hour_end}:00`,
-              avg_session_length_minutes: fp.avg_session_length_minutes,
-              decision_reversal_rate: fp.decision_reversal_rate,
-              primary_memory_type: fp.primary_memory_type,
-              mental_model_clusters: JSON.parse(fp.mental_model_clusters || "[]"),
-              cognitive_style: fp.cognitive_style,
-              total_sessions_analyzed: fp.total_sessions_analyzed,
-              updated_at: fp.updated_at
-            }
-          }) }] };
-        } catch (err) {
-          return { content: [{ type: "text", text: JSON.stringify({ status: "error", error: err.message }) }] };
-        }
-      }
-
-      // ═══ Innovation B: Get Prediction (debug) ═══
-      if (action === "get_prediction") {
-        try {
-          const pcRow = db.prepare(`
-            SELECT * FROM predictive_cache
-            WHERE project = ? AND consumed = 0 AND expires_at > ?
-            ORDER BY created_at DESC LIMIT 1
-          `).get(projectId, now);
-          if (!pcRow) {
-            return { content: [{ type: "text", text: JSON.stringify({
-              status: "no_active_prediction",
-              message: "No unexpired predictive cache entry. Save a file in the monitored workspace to generate one.",
-              project: projectId
-            }) }] };
-          }
-          return { content: [{ type: "text", text: JSON.stringify({
-            status: "found",
-            project: projectId,
-            trigger_file: pcRow.trigger_file,
-            confidence: pcRow.confidence,
-            expires_at: pcRow.expires_at,
-            predicted_contexts: JSON.parse(pcRow.predicted_contexts || "[]"),
-            pre_retrieved_memories: JSON.parse(pcRow.pre_retrieved_memories || "[]"),
-            note: "This is a READ-ONLY view. Cache is not consumed. Use resurrect to consume it."
-          }) }] };
-        } catch (err) {
-          return { content: [{ type: "text", text: JSON.stringify({ status: "error", error: err.message }) }] };
-        }
-      }
-
-      // ═══ Innovation F: Archaeology — full file history query ═══
-      if (action === "archaeology") {
-        try {
-          const filePath = args.file_path || args.session_summary || "";
-          if (!filePath) {
-            return { content: [{ type: "text", text: JSON.stringify({ status: "error", error: "file_path parameter required" }) }] };
-          }
-
-          const baseName = filePath.split("/").pop().split("\\").pop();
-
-          // 1. All episodic memories linked to this file via memory_code_links
-          const linkedMemories = db.prepare(`
-            SELECT em.id, em.content, em.event_type, em.created_at, em.strength
-            FROM episodic_memories em
-            JOIN memory_code_links mcl ON mcl.memory_id = em.id
-            WHERE mcl.code_node_id LIKE ? AND em.is_active = 1
-            ORDER BY em.created_at DESC LIMIT 20
-          `).all(`%${filePath}%`);
-
-          // 2. All decisions ever recorded about that file
-          const fileDecisions = db.prepare(
-            "SELECT title, context, chosen_option, predicted_outcome, actual_outcome, status, created_at FROM decisions WHERE project = ? AND (context LIKE ? OR title LIKE ?) ORDER BY created_at DESC LIMIT 10"
-          ).all(projectId, `%${baseName}%`, `%${baseName}%`);
-
-          // 3. All errors linked to that file
-          const fileErrors = db.prepare(
-            "SELECT id, description, bug_type, created_at, resolution FROM code_bugs WHERE file_path LIKE ? ORDER BY created_at DESC LIMIT 10"
-          ).all(`%${filePath}%`);
-
-          // 4. Semantic distillations that mention that file's name
-          const relatedDistillations = db.prepare(
-            "SELECT pattern, strength, fitness, updated_at FROM semantic_distillations WHERE project = ? AND pattern LIKE ? ORDER BY strength DESC LIMIT 5"
-          ).all(projectId, `%${baseName}%`);
-
-          // 5. Pheromone trail outcomes for that file
-          const pheromoneOutcomes = db.prepare(`
-            SELECT pt.action_type, pt.outcome, pt.agent_id, pt.created_at
-            FROM pheromone_trails pt
-            JOIN episodic_memories em ON em.id = pt.source_memory_id
-            JOIN memory_code_links mcl ON mcl.memory_id = em.id
-            WHERE mcl.code_node_id LIKE ? AND pt.project = ?
-            ORDER BY pt.created_at DESC LIMIT 10
-          `).all(`%${filePath}%`, projectId);
-
-          return { content: [{ type: "text", text: JSON.stringify({
-            status: "archaeology_complete",
-            file_path: filePath,
-            summary: `OWL found ${linkedMemories.length} memories, ${fileDecisions.length} decisions, ${fileErrors.length} errors, ${relatedDistillations.length} patterns about this file.`,
-            episodic_memories: linkedMemories,
-            decisions: fileDecisions,
-            errors: fileErrors,
-            semantic_patterns: relatedDistillations,
-            pheromone_outcomes: pheromoneOutcomes
-          }) }] };
-        } catch (err) {
-          return { content: [{ type: "text", text: JSON.stringify({ status: "error", error: err.message }) }] };
-        }
-      }
-
-      // ═══ Innovation F: Succession Export ═══
-      if (action === "succession_export") {
-        try {
-          const distillations = db.prepare(
-            "SELECT pattern, strength, fitness, created_at FROM semantic_distillations WHERE project = ? ORDER BY strength DESC LIMIT 50"
-          ).all(projectId);
-
-          const decisions = db.prepare(
-            "SELECT title, context, chosen_option, predicted_outcome, actual_outcome, status, created_at FROM decisions WHERE project = ? ORDER BY created_at DESC LIMIT 30"
-          ).all(projectId);
-
-          const recentEpisodics = db.prepare(
-            "SELECT content, event_type, strength, created_at FROM episodic_memories WHERE project = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 30"
-          ).all(projectId);
-
-          const fp = db.prepare("SELECT * FROM cognitive_fingerprint WHERE id = ?").get(`fp_${projectId}`);
-
-          const pheromonesSummary = db.prepare(`
-            SELECT action_type, outcome, COUNT(*) as count, AVG(strength_delta) as avg_delta
-            FROM pheromone_trails WHERE project = ?
-            GROUP BY action_type, outcome ORDER BY count DESC LIMIT 20
-          `).all(projectId);
-
-          const lastSession = db.prepare(
-            "SELECT summary, emotional_tone, ended_at FROM session_states WHERE project = ? ORDER BY ended_at DESC LIMIT 1"
-          ).get(projectId);
-
-          const exportPackage = {
-            export_version: "1.0",
-            project: projectId,
-            exported_at: now,
-            semantic_distillations: distillations,
-            key_decisions: decisions,
-            recent_episodic_summary: recentEpisodics.map(m => ({ content: m.content.slice(0, 200), type: m.event_type })),
-            cognitive_fingerprint: fp ? {
-              work_style: fp.work_style,
-              peak_hours: `${fp.peak_hour_start}:00-${fp.peak_hour_end}:00`,
-              primary_memory_type: fp.primary_memory_type,
-              cognitive_style: fp.cognitive_style
-            } : null,
-            pheromone_summary: pheromonesSummary,
-            last_session: lastSession || null
-          };
-
-          return { content: [{ type: "text", text: JSON.stringify({
-            status: "succession_package_ready",
-            package: exportPackage,
-            instructions: "Save this JSON. Use nexus.succession_import on the new project to onboard instantly."
-          }) }] };
-        } catch (err) {
-          return { content: [{ type: "text", text: JSON.stringify({ status: "error", error: err.message }) }] };
-        }
-      }
-
-      // ═══ Innovation F: Succession Import ═══
-      if (action === "succession_import") {
-        try {
-          const packageData = args.succession_package || args.memory_data?.content;
-          let pkg;
-          if (typeof packageData === "string") {
-            pkg = JSON.parse(packageData);
-          } else if (typeof packageData === "object") {
-            pkg = packageData;
-          } else {
-            return { content: [{ type: "text", text: JSON.stringify({ status: "error", error: "succession_package parameter required (JSON string or object)" }) }] };
-          }
-
-          let importedDistillations = 0, importedDecisions = 0, importedMemories = 0;
-
-          // Import semantic distillations
-          for (const d of (pkg.semantic_distillations || [])) {
-            const distId = generateId(d.pattern, projectId + "_import");
-            db.prepare(`
-              INSERT OR IGNORE INTO semantic_distillations (id, project, pattern, strength, fitness, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?)
-            `).run(distId, projectId, d.pattern, d.strength || 1.0, d.fitness || 0.5, now, now);
-            importedDistillations++;
-          }
-
-          // Import decisions (as informational)
-          for (const d of (pkg.key_decisions || [])) {
-            const decId = generateId(d.title + d.created_at, "succession");
-            db.prepare(`
-              INSERT OR IGNORE INTO decisions (id, title, context, chosen_option, predicted_outcome, actual_outcome, status, project, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, 'imported', ?, ?)
-            `).run(decId, d.title, d.context, d.chosen_option, d.predicted_outcome, d.actual_outcome, projectId, now);
-            importedDecisions++;
-          }
-
-          // Import recent episodic summary as semantic memories
-          for (const m of (pkg.recent_episodic_summary || [])) {
-            const memId = generateId(m.content, projectId + "_succession");
-            const emotional = detectEmotionalSalience(m.content);
-            db.prepare(`
-              INSERT OR IGNORE INTO episodic_memories (id, content, event_type, project, emotional_valence, emotional_arousal, salience, strength, source, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, 'succession_import', ?, ?)
-            `).run(memId, m.content, m.type || "observation", projectId, emotional.valence, emotional.arousal, emotional.salience, now, now);
-            importedMemories++;
-          }
-
-          return { content: [{ type: "text", text: JSON.stringify({
-            status: "succession_import_complete",
-            project: projectId,
-            imported: {
-              semantic_distillations: importedDistillations,
-              decisions: importedDecisions,
-              episodic_memories: importedMemories
-            },
-            source_project: pkg.project || "unknown",
-            message: `Onboarding complete. Imported ${importedDistillations} patterns, ${importedDecisions} decisions, ${importedMemories} memories from predecessor project.`
-          }) }] };
-        } catch (err) {
-          return { content: [{ type: "text", text: JSON.stringify({ status: "error", error: err.message }) }] };
-        }
-      }
-
-      // ═══ Phase 4 Unification: 'do' — Universal Action Router ═══
-      if (action === "do") {
-        try {
-          const goal = (args.goal || args.session_summary || "").toLowerCase();
-          let routedTo = null;
-          let result = null;
-
-          // URL detection -> web routing
-          if (goal.match(/https?:\/\/[^\s]+/) || goal.includes("fetch") || goal.includes("scrape")) {
-            routedTo = "web_fetch";
-            result = { routed_to: routedTo, message: "URL detected. Use owl-web MCP tool 'web_fetch' or 'web_scrape_adaptive' for this goal.", goal };
-          }
-          // "what changed on" -> web_diff
-          else if (goal.includes("what changed") || goal.includes("diff") || goal.includes("monitor")) {
-            routedTo = "web_diff";
-            result = { routed_to: routedTo, message: "Change detection goal. Use owl-web MCP tool 'web_diff' or 'web_monitor_start'.", goal };
-          }
-          // "remember" or "store" -> record memory
-          else if (goal.includes("remember") || goal.includes("store") || goal.includes("save")) {
-            routedTo = "nexus.record";
-            const content = args.goal || "";
-            const memId = generateId(content, projectId);
-            const emotional = detectEmotionalSalience(content);
-            db.prepare(`
-              INSERT OR IGNORE INTO episodic_memories (id, content, event_type, project, emotional_valence, emotional_arousal, salience, strength, created_at, updated_at)
-              VALUES (?, ?, 'observation', ?, ?, ?, ?, 1.0, ?, ?)
-            `).run(memId, content, projectId, emotional.valence, emotional.arousal, emotional.salience, now, now);
-            result = { routed_to: routedTo, memory_id: memId, message: "Memory stored via universal do router." };
-          }
-          // "what do I know about" -> recall
-          else if (goal.includes("what do i know") || goal.includes("recall") || goal.includes("remember what")) {
-            routedTo = "nexus.recall";
-            const mems = db.prepare("SELECT content, event_type FROM episodic_memories WHERE project = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 10").all(projectId);
-            result = { routed_to: routedTo, memories: mems, message: "Recall executed via universal do router." };
-          }
-          // Research questions (fact-based questions)
-          else if (goal.includes("?") || goal.includes("what is") || goal.includes("how to") || goal.includes("explain") || goal.includes("research")) {
-            routedTo = "research_quick";
-            result = { routed_to: routedTo, message: "Research question detected. Use owl-research MCP tool 'research_quick' for this goal.", goal };
-          }
-          // File archaeology
-          else if (goal.includes("why does") || goal.includes("archaeology") || goal.includes("history of")) {
-            routedTo = "nexus.archaeology";
-            result = { routed_to: routedTo, message: "File history query detected. Use nexus action 'archaeology' with file_path parameter.", goal };
-          }
-          // Default: perceive
-          else {
-            routedTo = "nexus.perceive";
-            result = { routed_to: routedTo, message: "No specific routing detected. Falling back to workspace perception. Use nexus.perceive for full context.", goal };
-          }
-
-          return { content: [{ type: "text", text: JSON.stringify({
-            status: "routed",
-            goal: args.goal || "",
-            routed_to: routedTo,
-            result
-          }) }] };
-        } catch (err) {
-          return { content: [{ type: "text", text: JSON.stringify({ status: "error", error: err.message }) }] };
-        }
-      }
-
-
-      // ═══ Innovation C: Stigmergy — mark_outcome ═══
-      // When something works or fails, mark it so the pheromone trail strengthens or weakens
-      if (action === "mark_outcome") {
-        const outcome = args.outcome || 'neutral'; // 'success' | 'failure' | 'neutral'
-        const context = args.session_summary || ''; // reuse session_summary field
-        const agentId = args.agent_id || 'default';
-
-        // Get memories active in recent context (last 20 minutes)
-        const recentMems = db.prepare(`
-          SELECT id, strength FROM episodic_memories
-          WHERE project = ? AND is_active = 1
-          ORDER BY created_at DESC LIMIT 10
-        `).all(projectId);
-
-        const delta = outcome === 'success' ? 0.3 : outcome === 'failure' ? -0.2 : 0;
-
-        for (const m of recentMems) {
-          // Update memory strength as pheromone reinforcement
-          db.prepare("UPDATE episodic_memories SET strength = MAX(0.05, MIN(5.0, strength + ?)) WHERE id = ?").run(delta, m.id);
-
-          // Log the pheromone trail
-          db.prepare(`
-            INSERT INTO pheromone_trails (source_memory_id, action_type, outcome, strength_delta, agent_id, project, created_at)
-            VALUES (?, 'session_outcome', ?, ?, ?, ?, ?)
-          `).run(m.id, outcome, delta, agentId, projectId, now);
-        }
-
-        // Also update semantic distillations related to this context
-        if (context) {
-          const relatedDistillations = db.prepare(
-            "SELECT id FROM semantic_distillations WHERE project = ? AND pattern LIKE ?"
-          ).all(projectId, `%${context.slice(0, 20)}%`);
-          for (const d of relatedDistillations) {
-            const scoreAdj = outcome === 'success' ? 0.1 : outcome === 'failure' ? -0.1 : 0;
-            db.prepare("UPDATE semantic_distillations SET outcome_score = outcome_score + ?, fitness = MIN(1.0, MAX(0.0, fitness + ?)), updated_at = ? WHERE id = ?").run(scoreAdj, scoreAdj, now, d.id);
-          }
-        }
-
-        return { content: [{ type: "text", text: JSON.stringify({
-          status: 'outcome_marked',
-          outcome,
-          memories_updated: recentMems.length,
-          pheromone_delta: delta,
-          message: outcome === 'success'
-            ? `Pheromone boost applied to ${recentMems.length} recent memories. Successful paths strengthened.`
-            : outcome === 'failure'
-            ? `Pheromone penalty applied to ${recentMems.length} recent memories. Failed paths weakened.`
-            : `Neutral outcome recorded.`
-        }) }] };
-      }
-
-      // \u2550\u2550\u2550 Innovation 2: Cognitive Echo \u2550\u2550\u2550
-      // Extract high-value insights from an AI response and store them automatically
-      if (action === "echo") {
-        const aiOutput = args.ai_output || "";
-        const extracted = [];
-
-        // Pattern matching for high-value AI cognition signals
-        const insightPatterns = [
-          { regex: /the (?:bug|issue|problem|error) is (?:in|at|caused by) ([^.\n]{10,120})/gi, type: "insight" },
-          { regex: /(?:warning|risk|caution|danger|watch out)[:\s]+([^.\n]{10,120})/gi, type: "error" },
-          { regex: /(?:i (?:recommend|suggest)|recommendation)[:\s]+([^.\n]{10,120})/gi, type: "decision" },
-          { regex: /(?:the fix|solution|resolution)[:\s]+([^.\n]{10,120})/gi, type: "learning" },
-          { regex: /(?:discovered|found|noticed|learned)[:\s]+([^.\n]{10,120})/gi, type: "insight" }
-        ];
-
-        for (const { regex, type } of insightPatterns) {
-          let match;
-          while ((match = regex.exec(aiOutput)) !== null) {
-            const content = match[1].trim();
-            if (content.length > 15) {
-              extracted.push({ content: content.slice(0, 200), event_type: type, confidence: 0.85 });
-            }
-          }
-        }
-
-        // Auto-store high-confidence extractions
-        const stored = [];
-        for (const e of extracted.slice(0, 5)) {
-          const memId = generateId(e.content, projectId + "_echo");
-          const emotional = detectEmotionalSalience(e.content);
-          db.prepare(`
-            INSERT OR IGNORE INTO episodic_memories
-              (id, content, event_type, project, emotional_valence, emotional_arousal, salience, strength, source, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, 'cognitive_echo', ?, ?)
-          `).run(memId, e.content, e.event_type, projectId, emotional.valence, emotional.arousal, Math.max(0.7, emotional.salience), now, now);
-          stored.push({ memory_id: memId, content: e.content, type: e.event_type });
-        }
-
-        return { content: [{ type: "text", text: JSON.stringify({
-          status: "echo_complete",
-          extracted_count: extracted.length,
-          stored_count: stored.length,
-          stored_memories: stored,
-          message: stored.length > 0
-            ? `Captured ${stored.length} insight(s) from your response into OWL memory.`
-            : "No high-confidence insights detected in this response."
-        }) }] };
+        return { content: [{ type: "text", text: JSON.stringify({ status: "dream_cycle_completed", report: rep, simulation: sim, schema_evolution: evo, glymphatic_cleanup: gly, torvalds_chrono_pruner: torvalds }) }] };
       }
     }
 
@@ -2535,7 +1326,6 @@ function generate10YearOldExplanation(node) {
     return `⚙️ <strong>A Small Sub-Assembly Machine</strong>: A function named <code>${name}</code> designed to perform a specific job in the system.`;
   }
 
-  // Memory node
   if (node.group === "error" || node.group === "bug") {
     return "💥 <strong>The Crash Site</strong>: An error log saved when a command failed. It shows exactly which line broke and why.";
   }
@@ -2565,7 +1355,6 @@ async function getGraphData() {
   const nodes = [];
   const edges = [];
 
-  // 1. Fetch Episodic Memories
   const epMems = db.prepare("SELECT * FROM episodic_memories WHERE is_active = 1").all();
   for (const m of epMems) {
     nodes.push({
@@ -2577,7 +1366,6 @@ async function getGraphData() {
     });
   }
 
-  // 2. Fetch Semantic Memories
   const semMems = db.prepare("SELECT * FROM semantic_memories WHERE is_active = 1").all();
   for (const m of semMems) {
     nodes.push({
@@ -2589,7 +1377,6 @@ async function getGraphData() {
     });
   }
 
-  // 3. Fetch Procedural Memories
   const procMems = db.prepare("SELECT * FROM procedural_memories WHERE is_active = 1").all();
   for (const m of procMems) {
     nodes.push({
@@ -2601,7 +1388,6 @@ async function getGraphData() {
     });
   }
 
-  // 4. Fetch Somatic Memories
   const somMems = db.prepare("SELECT * FROM somatic_memories WHERE is_active = 1").all();
   for (const m of somMems) {
     nodes.push({
@@ -2613,7 +1399,6 @@ async function getGraphData() {
     });
   }
 
-  // 5. Fetch Code Nodes
   const codeNodes = db.prepare(`
     SELECT cn.*, COALESCE(cna.activation, 0.0) as activation 
     FROM code_nodes cn
@@ -2629,7 +1414,6 @@ async function getGraphData() {
     });
   }
 
-  // 6. Fetch Code Bugs
   const bugs = db.prepare("SELECT * FROM code_bugs WHERE is_active = 1").all();
   for (const b of bugs) {
     nodes.push({
@@ -2641,7 +1425,6 @@ async function getGraphData() {
     });
   }
 
-  // 7. Fetch Decisions
   const decs = db.prepare("SELECT * FROM decisions").all();
   for (const d of decs) {
     nodes.push({
@@ -2653,7 +1436,6 @@ async function getGraphData() {
     });
   }
 
-  // 8. Fetch Threat Patterns
   const threats = db.prepare("SELECT * FROM threat_patterns WHERE is_active = 1").all();
   for (const t of threats) {
     nodes.push({
@@ -2665,38 +1447,32 @@ async function getGraphData() {
     });
   }
 
-  // Generate 10-year-old child style explanations for all nodes
   for (const node of nodes) {
     node.simple_explanation = generate10YearOldExplanation(node);
   }
 
   const nodeIds = new Set(nodes.map(n => n.id));
 
-  // 9. Fetch Code Edges
   const codeEdges = db.prepare("SELECT * FROM code_edges").all();
   for (const e of codeEdges) {
     edges.push({ source: e.source_id, target: e.target_id, type: e.edge_type || "calls" });
   }
 
-  // 10. Fetch Memory-Code Links
   const memLinks = db.prepare("SELECT * FROM memory_code_links").all();
   for (const l of memLinks) {
     edges.push({ source: l.memory_id, target: l.code_node_id, type: l.link_type || "associated" });
   }
 
-  // 11. Fetch Synaptic Weights
   const synWeights = db.prepare("SELECT * FROM synaptic_weights").all();
   for (const w of synWeights) {
     edges.push({ source: w.source_id, target: w.target_id, type: "synaptic", weight: w.attention_weight });
   }
 
-  // 12. Fetch Causal Links
   const causalLinks = db.prepare("SELECT * FROM causal_links").all();
   for (const c of causalLinks) {
     edges.push({ source: c.cause_id, target: c.effect_id, type: c.link_type || "causes" });
   }
 
-  // Filter out invalid edges (dangling links)
   const cleanEdges = edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
 
   return { nodes, edges: cleanEdges };
@@ -2704,16 +1480,14 @@ async function getGraphData() {
 
 server.setRequestHandler(ListResourcesRequestSchema, async () => [
   { uri: "owl-memory://graph", name: "Memory Graph v5", description: "V5 memory nodes and call links", mimeType: "application/json" },
-  { uri: "owl-memory://graph-ui", name: "Memory Graph UI", description: "Interactive force-directed graph visualization with 10-year-old explanations", mimeType: "text/html" },
-  { uri: "owl-memory://handoff", name: "Session Handoff Brief", description: "Compact session state for injecting into a new AI session's system prompt. Read this at the start of any new session.", mimeType: "text/plain" },
-  { uri: "owl-memory://ledger", name: "Token Ledger", description: "Token savings report showing efficiency of OWL memory injection.", mimeType: "application/json" }
+  { uri: "owl-memory://graph-ui", name: "Memory Graph UI", description: "Interactive force-directed graph visualization with 10-year-old explanations", mimeType: "text/html" }
 ]);
 
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const uri = request.params.uri;
   if (uri === "owl-memory://graph") {
     const data = await getGraphData();
-    return { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(data) }] };
+    return { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(data, null, 2) }] };
   }
   if (uri === "owl-memory://graph-ui") {
     const data = await getGraphData();
@@ -2730,66 +1504,6 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     }
     return { contents: [{ uri, mimeType: "text/html", text: html }] };
   }
-
-  // ═══ Innovation 4: Handoff Brief Resource ═══
-  // Any AI agent (Claude, GPT, Gemini) can read this URI to instantly orient itself
-  if (uri === "owl-memory://handoff") {
-    const projectId = "default";
-    const lastSession = db.prepare(
-      "SELECT * FROM session_states WHERE project = ? ORDER BY ended_at DESC LIMIT 1"
-    ).get(projectId);
-    const threats = db.prepare(
-      "SELECT pattern_name FROM threat_patterns WHERE is_active = 1 LIMIT 3"
-    ).all();
-    const ledger = db.prepare(
-      "SELECT SUM(tokens_saved_estimate) as saved FROM token_ledger WHERE project = ?"
-    ).get(projectId);
-
-    if (!lastSession) {
-      return { contents: [{ uri, mimeType: "text/plain", text: "No prior session found. This is a fresh start." }] };
-    }
-
-    const hoursAgo = Math.round((Date.now() - new Date(lastSession.ended_at).getTime()) / 3600000);
-    const pendingDecisions = JSON.parse(lastSession.pending_decisions || "[]");
-    const lines = [
-      `=== OWL MEMORY HANDOFF BRIEF ===`,
-      `Project: ${projectId} | Last session: ${hoursAgo}h ago | Mood: ${lastSession.emotional_tone}`,
-      ``,
-      `WHAT WAS BEING WORKED ON:`,
-      lastSession.summary,
-      ``,
-      lastSession.last_file ? `ACTIVE FILE: ${lastSession.last_file}` : "",
-      lastSession.last_error ? `LAST ERROR TO KNOW ABOUT: ${lastSession.last_error.slice(0, 150)}` : "",
-      pendingDecisions.length ? `PENDING DECISIONS:\n${pendingDecisions.map(d => `  - ${d.title}: ${d.context ? d.context.slice(0, 80) : ""}`).join("\n")}` : "",
-      threats.length ? `ACTIVE THREAT PATTERNS:\n${threats.map(t => `  - ${t.pattern_name}`).join("\n")}` : "",
-      ``,
-      `TOKEN SAVINGS: ~${Math.round((ledger?.saved || 0) / 1000)}k tokens saved to date.`,
-      ``,
-      `INSTRUCTION: You are now context-aware. Do not ask the user to re-explain the project. Proceed.`,
-      `=== END HANDOFF ===`
-    ].filter(l => l !== null && l !== undefined).join("\n");
-
-    return { contents: [{ uri, mimeType: "text/plain", text: lines }] };
-  }
-
-  // ═══ Innovation 3: Token Ledger Resource ═══
-  if (uri === "owl-memory://ledger") {
-    const projectId = "default";
-    const totals = db.prepare(
-      "SELECT SUM(tokens_injected) as total_injected, SUM(tokens_saved_estimate) as total_saved, COUNT(*) as calls FROM token_ledger WHERE project = ?"
-    ).get(projectId);
-    const byTool = db.prepare(
-      "SELECT tool_called, SUM(tokens_injected) as injected, SUM(tokens_saved_estimate) as saved, COUNT(*) as calls FROM token_ledger WHERE project = ? GROUP BY tool_called"
-    ).all(projectId);
-    return { contents: [{ uri, mimeType: "application/json", text: JSON.stringify({
-      project: projectId,
-      total_tokens_saved: totals?.total_saved || 0,
-      total_tokens_injected: totals?.total_injected || 0,
-      total_calls: totals?.calls || 0,
-      by_tool: byTool
-    }) }] };
-  }
-
   throw new Error(`Unknown resource: ${uri}`);
 });
 
@@ -2799,7 +1513,6 @@ async function main() {
   warmupNER();
   console.error(`OWL Memory MCP v5.0 — UNS Engine running on stdio`);
 
-  // Launch background daemon automatically
   try {
     const daemonPath = path.join(__dirname, "owl_daemon.js");
     const { spawn } = require("child_process");

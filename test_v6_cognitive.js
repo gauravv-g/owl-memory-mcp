@@ -120,25 +120,25 @@ async function main() {
   console.log("Perceive Response:", JSON.stringify(percRes, null, 2));
 
   // 1. Verify Tesla Wave propagation
-  T("Tesla Wave: active node is activated", percRes.active_node_id === "src/db.js");
+  T("Tesla Wave: active node is activated", percRes.a === "src/db.js");
   const configActivation = db.prepare("SELECT activation FROM code_node_activation WHERE node_id = 'src/config.js'").get()?.activation || 0;
   const appActivation = db.prepare("SELECT activation FROM code_node_activation WHERE node_id = 'src/app.js'").get()?.activation || 0;
   T("Tesla Wave: wave propagated to imports neighbor config.js", configActivation > 0.05);
   T("Tesla Wave: wave propagated to parent app.js", appActivation > 0.05);
 
   // 2. Verify Thiel Contradiction detection
-  const thielWarning = percRes.threat_warnings?.find(w => w.assertion_type === "stability" && w.message.includes("SECRET"));
+  const thielWarning = percRes.tw?.find(w => w.at === "stability" && w.message.includes("SECRET"));
   T("Thiel Contradiction: detected stability contradiction", thielWarning !== undefined);
   if (thielWarning) {
-    T("Thiel Contradiction: references contradictory memory content", thielWarning.contradictory_evidence.includes("leak"));
+    T("Thiel Contradiction: references contradictory memory content", thielWarning.ce.includes("leak"));
   }
 
   // 3. Verify Tata Stewardship Ledger wrapper suggestion
-  const tataAlert = percRes.threat_warnings?.find(w => w.package === "src/config.js");
+  const tataAlert = percRes.tw?.find(w => w.pn === "src/config.js");
   T("Tata Stewardship: alert generated for critical dependency", tataAlert !== undefined);
   if (tataAlert) {
-    T("Tata Stewardship: contains trust coefficient", tataAlert.trust_coefficient === 0.3);
-    T("Tata Stewardship: contains try-catch circuit breaker suggestion", tataAlert.circuit_breaker && tataAlert.circuit_breaker.includes("try-catch"));
+    T("Tata Stewardship: contains trust coefficient", tataAlert.tc === 0.3);
+    T("Tata Stewardship: contains try-catch circuit breaker suggestion", tataAlert.cb && tataAlert.circuit_breaker.includes("try-catch"));
   }
 
   // 4. Verify Torvalds Chrono-Pruner via dream cycle

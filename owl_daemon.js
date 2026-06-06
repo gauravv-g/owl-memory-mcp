@@ -258,6 +258,15 @@ function handleFileChange(filePath) {
   const currentTime = Date.now();
   if (lastSavedFileId && (currentTime - lastSaveTime < 15000)) {
     updateHebbianTransition(lastSavedFileId, relPath);
+    // ═══ Nerve Bridge: signal rapid co-edit (Hebbian spike) ═══
+    try {
+      db.prepare("INSERT INTO daemon_signals (signal_type, payload, created_at, consumed) VALUES (?, ?, ?, 0)")
+        .run(
+          "hebbian_spike",
+          JSON.stringify({ from: lastSavedFileId, to: relPath, gap_ms: currentTime - lastSaveTime }),
+          new Date().toISOString()
+        );
+    } catch(e) {}
   }
   lastSavedFileId = relPath;
   lastSaveTime = currentTime;
@@ -312,6 +321,16 @@ function handleFileChange(filePath) {
 
     db.prepare("UPDATE code_nodes SET bug_count = bug_count + 1 WHERE id = ?").run(relPath);
 
+    // ═══ Nerve Bridge: signal the MCP server about this syntax error ═══
+    try {
+      db.prepare("INSERT INTO daemon_signals (signal_type, payload, created_at, consumed) VALUES (?, ?, ?, 0)")
+        .run(
+          "syntax_error_detected",
+          JSON.stringify({ file: relPath, error: syntaxError.slice(0, 200), suggestion: suggestion.slice(0, 150) }),
+          now
+        );
+    } catch(e) {}
+
     // Trigger Desktop notification
     triggerWindowsNotification("OWL Alert: Code broken!", `Syntax issue in ${path.basename(relPath)}. View suggestion card in Graph UI.`);
   } else {
@@ -320,6 +339,11 @@ function handleFileChange(filePath) {
     if (row && row.cnt > 0) {
       db.prepare("UPDATE code_bugs SET is_active = 0, resolution = 'Resolved by save validation' WHERE file_path = ?").run(relPath);
       console.log(`[OWL DAEMON] Resolved active bugs for ${relPath}`);
+      // ═══ Nerve Bridge: signal fix ═══
+      try {
+        db.prepare("INSERT INTO daemon_signals (signal_type, payload, created_at, consumed) VALUES (?, ?, ?, 0)")
+          .run("syntax_resolved", JSON.stringify({ file: relPath }), now);
+      } catch(e) {}
       triggerWindowsNotification("OWL Info: Code Resolved", `${path.basename(relPath)} compiles successfully now.`);
     }
     
@@ -332,6 +356,9 @@ function handleFileChange(filePath) {
 
   // 4. Generate Live Prompt Context Deck
   writeContextDeck(relPath);
+
+  // 5. Innovation B: Write Predictive Cache for next resurrect call
+  writePredictiveCache(relPath, "default");
 
   // Reset idle timer
   resetIdleTimer();
@@ -376,6 +403,18 @@ function resetIdleTimer() {
       
       const evolvedCount = evo.evolutions_count || 0;
       const prunedCount = (gly.pruned_synapses || 0) + (gly.pruned_bugs || 0);
+
+      // ═══ Nerve Bridge: signal dream completion and glymphatic results ═══
+      try {
+        const sigNow = new Date().toISOString();
+        db.prepare("INSERT INTO daemon_signals (signal_type, payload, created_at, consumed) VALUES (?, ?, ?, 0)")
+          .run(
+            "idle_consolidation_complete",
+            JSON.stringify({ merged, evolved: evolvedCount, pruned: prunedCount }),
+            sigNow
+          );
+      } catch(e) {}
+
       triggerWindowsNotification("OWL Substrate", `Dream cycle finished. Merged: ${merged}, Evolved: ${evolvedCount}, Pruned: ${prunedCount}. Database compacted.`);
     } catch (err) {
       console.error("[OWL DAEMON] Dream cycle failed:", err.message);
@@ -490,6 +529,93 @@ function pruneGlymphaticSubstrate(projectId) {
   } catch (err) {
     console.error(`[OWL DAEMON] Glymphatic cleanup failed: ${err.message}`);
     return { status: "failed", error: err.message };
+  }
+}
+
+// ─── Innovation B: Predictive Sensorium — Write Predictive Cache on File Save ─
+function writePredictiveCache(relPath, projectId) {
+  try {
+    // 1. Identify the project (use default if not resolvable)
+    const project = projectId || "default";
+
+    // 2. Query recent episodic memories linked to this file via memory_code_links
+    let linkedMemories = [];
+    try {
+      const links = db.prepare(`
+        SELECT em.id, em.content, em.event_type, em.strength
+        FROM episodic_memories em
+        JOIN memory_code_links mcl ON mcl.memory_id = em.id
+        WHERE mcl.code_node_id = ? AND em.is_active = 1
+        ORDER BY em.created_at DESC LIMIT 5
+      `).all(relPath);
+      linkedMemories = links.map(m => ({
+        id: m.id,
+        content: m.content.slice(0, 200),
+        event_type: m.event_type,
+        strength: m.strength
+      }));
+    } catch (e) {}
+
+    // 3. Query the last error for this project
+    let lastError = null;
+    try {
+      const errMem = db.prepare(`
+        SELECT content FROM episodic_memories
+        WHERE project = ? AND event_type = 'error' AND is_active = 1
+        ORDER BY created_at DESC LIMIT 1
+      `).get(project);
+      if (errMem) lastError = errMem.content.slice(0, 300);
+    } catch (e) {}
+
+    // 4. Query pending decisions for this project
+    let pendingDecisions = [];
+    try {
+      const decs = db.prepare(`
+        SELECT title, context FROM decisions
+        WHERE project = ? AND status = 'pending'
+        ORDER BY created_at DESC LIMIT 3
+      `).all(project);
+      pendingDecisions = decs.map(d => ({ title: d.title, context: d.context ? d.context.slice(0, 150) : null }));
+    } catch (e) {}
+
+    // 5. Build the predicted contexts summary
+    const predictedContexts = [];
+    if (lastError) {
+      predictedContexts.push({ type: "last_error", value: lastError });
+    }
+    for (const d of pendingDecisions) {
+      predictedContexts.push({ type: "pending_decision", value: d.title });
+    }
+    if (linkedMemories.length > 0) {
+      predictedContexts.push({ type: "linked_memories_count", value: linkedMemories.length });
+    }
+
+    // 6. Write the predictive_cache record with 10-minute TTL
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+    // Expire old unconsumed cache for this project first
+    try {
+      db.prepare("UPDATE predictive_cache SET consumed = 1 WHERE project = ? AND consumed = 0").run(project);
+    } catch (e) {}
+
+    db.prepare(`
+      INSERT INTO predictive_cache
+        (project, trigger_file, predicted_contexts, pre_retrieved_memories, confidence, created_at, expires_at, consumed)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+    `).run(
+      project,
+      relPath,
+      JSON.stringify(predictedContexts),
+      JSON.stringify(linkedMemories),
+      linkedMemories.length > 0 ? 0.8 : 0.4,
+      now,
+      expiresAt
+    );
+
+    console.log(`[OWL DAEMON] Predictive cache written for ${relPath} (${linkedMemories.length} memories pre-loaded, expires ${expiresAt})`);
+  } catch (err) {
+    console.error("[OWL DAEMON] Failed to write predictive cache:", err.message);
   }
 }
 

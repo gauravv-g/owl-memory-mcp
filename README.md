@@ -1,8 +1,26 @@
-# OWL Memory MCP v5.0 — The Ultimate Neuromorphic Substrate (UNS)
+# OWL Memory MCP — The Ultimate Neuromorphic Substrate (UNS)
 
 OWL Memory is a local, SQLite-backed Model Context Protocol (MCP) server that provides a reasoning-oriented memory substrate for AI assistants. It collapses codebase structure, developer behavior, error harvesting, and prompt compression into a single self-evolving system.
 
 > **Plain English**: OWL Memory is a smart local memory box for your AI editor that automatically shrinks large code files into outlines to save 90% on token costs, warns you on your desktop when syntax breaks, and shows an interactive 3D-style graph of your project's history.
+
+---
+
+## ⚡ Key Achievements & Evolution
+
+### 🌐 Universal HTTP/SSE Gateway
+OWL now runs as a single background service ([owl_gateway.py](file:///c:/Users/shiva/hermes-custom-mcps/owl_gateway.py)) hosting three separate servers on port `3710` via standard Server-Sent Events (SSE). This lets all your AI tools (Claude Desktop, Cursor, Antigravity, custom scripts) share the same memory instance simultaneously.
+
+### 🔍 Scrapling-Powered Web Intelligence (`owl-web`)
+Exposes advanced web extraction tools powered by the Scrapling framework:
+* **Adaptive Scraper**: Extracts structured markdown content from pages, bypassing bot detection.
+* **Diff Monitor**: Tracks visual or text changes between two versions of a webpage.
+* **Web Crawler**: Recursively follows links up to 20 pages deep to build a local knowledge base.
+
+### 🧠 Deep Research Engine with Auto-Memory (`owl-research`)
+A search-and-synthesis agent that scans online sources. Whenever you ask it to research a topic:
+* It reads search results and web pages to compile a detailed synthesis report.
+* **Automatic Storage**: The research results are automatically written directly into the SQLite memory database as episodic memories. The next time you ask a question, your AI will remember the research without searching the web again.
 
 ---
 
@@ -14,12 +32,12 @@ graph TD
     UNS --> HAW["Hebbian Attention Wiring<br>(Tesla & Torvalds)"]
     UNS --> RCD["Refractory Context Dilation<br>(Einstein & Thiel)"]
     UNS --> ADS["Autonomic Dream Simulation<br>(Musk & Da Vinci)"]
-    UNS --> ABD["Autonomic Background Watcher<br>(Real-time Daemon)"]
+    UNS --> ABD["Autonomic Background Watcher<br>(Live Daemon)"]
 
     HAW --> |Track Focus Sequences| DB[(SQLite Substrate)]
     RCD --> |Compress Code Outlines| MD[".owl_context.md Deck"]
     ADS --> |Mutate & Run Linters| Threats[Threat Patterns & Bug Cards]
-    ABD --> |Save Events & Compilers| Toast[Native OS Balloon Notifications]
+    ABD --> |Save Events & Compilers| Toast[Toast notifications]
 ```
 
 ### 1. Hebbian Attention Wiring (Dynamic Co-occurrence)
@@ -67,7 +85,7 @@ Assume a standard coding session of 40 conversation turns:
 
 ### 1. Prerequisites
 * **Node.js** (v18+)
-* **Python** (for running Python syntax linter)
+* **Python** (v3.10+)
 
 ### 2. Setup
 Clone the repository and install dependencies:
@@ -75,56 +93,98 @@ Clone the repository and install dependencies:
 git clone https://github.com/gauravv-g/owl-memory-mcp.git
 cd owl-memory-mcp
 npm install
+pip install starlette uvicorn sse-starlette mcp scrapling beautifulsoup4 lxml html2text
 ```
 
-### 3. Configuring the MCP Server
+### 3. Run the Universal Gateway
+Start the HTTP/SSE gateway:
+```bash
+python owl_gateway.py
+```
+This runs the server locally on http://localhost:3710.
+
+### 4. Configuring the MCP Clients
 
 #### Claude Desktop Setup
-Add the server definition to your `claude_desktop_config.json` (located at `%APPDATA%\Claude\claude_desktop_config.json` on Windows or `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+Add the server definitions to your `claude_desktop_config.json` (located at `%APPDATA%\Claude\claude_desktop_config.json` on Windows or `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 ```json
 {
   "mcpServers": {
     "owl-memory": {
-      "command": "node",
-      "args": [
-        "C:/Users/shiva/hermes-custom-mcps/owl_memory_v5.js"
-      ]
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:3710/memory/sse"]
+    },
+    "owl-web": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:3710/web/sse"]
+    },
+    "owl-research": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:3710/research/sse"]
     }
   }
 }
 ```
 
 #### Cursor Setup
-Go to **Settings > MCQ > Add New MCP Tool**:
-* **Name**: `owl-memory`
-* **Type**: `command`
-* **Command**: `node C:/Users/shiva/hermes-custom-mcps/owl_memory_v5.js`
+Create a file at `%USERPROFILE%\.cursor\mcp.json` or `.cursor/mcp.json` in your project root:
+```json
+{
+  "mcpServers": {
+    "owl-memory": {
+      "url": "http://localhost:3710/memory/sse"
+    },
+    "owl-web": {
+      "url": "http://localhost:3710/web/sse"
+    },
+    "owl-research": {
+      "url": "http://localhost:3710/research/sse"
+    }
+  }
+}
+```
+
+#### Antigravity (Gemini) Setup
+Add the configuration to `C:\Users\shiva\.gemini\config\mcp_config.json`:
+```json
+{
+  "mcpServers": {
+    "owl-memory": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:3710/memory/sse"]
+    },
+    "owl-web": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:3710/web/sse"]
+    },
+    "owl-research": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:3710/research/sse"]
+    }
+  }
+}
+```
 
 ---
 
-## 🛠️ MCP Tool & Resource Reference
+## 🛠️ MCP Tool Reference
 
-OWL Memory UNS exposes a single unified cognitive action gate alongside core memory operations:
+### 1. Unified `nexus` Tool
+The main entry point for memory and cognitive actions.
+* **Actions**: `perceive` (workspace scanning), `record` (event memory), `cogitate` (reasoning), `act` (execution), `dream` (database optimization/cleanup), `resurrect` (session restore), `echo` (insight gathering).
 
-### 1. The Unified `nexus` Tool
-The main entry point for AI reasoning.
-* **Arguments**:
-  * `action` (string: `perceive`, `record`, `cogitate`, `act`, `dream`)
-  * `workspace_state` (object containing `active_file`, `code_snippet`, `terminal_output`, `git_diff`)
-  * `memory_data` (object containing memory `content`, `event_type`, and `linked_code_nodes`)
-  * `reasoning_query` (object containing choice `options`, `chosen_option`, `source_branch`, `target_branch`)
-  * `operational_cmd` (object containing terminal `command` and `cwd`)
+### 2. Web Intelligence (`owl-web`)
+* `web_fetch`: Quick scrape of a target URL.
+* `web_scrape_adaptive`: Extracts clean markdown content bypassing bot blocks.
+* `web_diff`: Computes differences between current and historical snapshots of a page.
+* `web_research_crawl`: Deep link-following crawl to extract information across multiple pages.
 
-### 2. Interactive Resources
-Query these resources to fetch graph snapshots or load the D3 visualizer webview:
-* `owl-memory://graph` (returns raw JSON mapping of code files, somatic valence, bugs, and synaptic links)
-* `owl-memory://graph-ui` (returns a beautiful, glassmorphic force-directed HTML graph panel with 10-year-old child analogies and suggestions)
-
-### 3. Core Memory Utilities
-* `remember`: Stores raw episodic memories.
-* `recall`: Performs keyword/vector similarities.
-* `index_codebase`: Scans and indexes directories recursively.
-* `get_stats`: Outputs database status.
+### 3. Research Engine (`owl-research`)
+* `research_quick`: Immediate search and extraction.
+* `research_deep`: Exhaustive multi-source query with automatic synthesis.
+* `research_compare`: Compares two concepts or technologies using web searches.
+* `research_synthesize`: Takes search raw results and builds a structured overview.
+* *Note: All successful research reports are automatically stored inside the OWL database as episodic memories.*
 
 ---
 

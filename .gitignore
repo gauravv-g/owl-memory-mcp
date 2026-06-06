@@ -14,4 +14,4 @@ graphify-out/
 .owl_context.md
 .owl-temp/
 *.pid
-
+.cursor/
