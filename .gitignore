@@ -1,17 +1,54 @@
+# Dependencies
 node_modules/
-.venv/
 __pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OWL runtime data (personal, not source)
 *.db
-*.db-journal
 *.db-shm
 *.db-wal
-.env
+.owl-memory/
+owl_research_history.json
+.owl_context.md
+
+# Test files
+test_*.js
+test_*.py
+
+# Old versions (kept only v5 in source)
+owl_memory_v[0-4]*.js
+owl_memory_v3*
+
+# Build/patch/dev scripts
+build_*.js
+patch_*.js
+optimize.js
+audit_*.js
+bootstrap_*.js
+go.py
+msg.txt
+nul
+
+# Internal dev docs
+INNOVATION_PLAN.md
+NEUROMORPHIC_SUBSTRATE.md
+OWL_V4_COMPARISON.md
+
+# OS/editor
 .DS_Store
+Thumbs.db
 .idea/
 .vscode/
+*.swp
+
+# Logs
 *.log
-graphify-out/
-.owl_context.md
+logs/
+
+# Temp
+*.tmp
+*.temp
 .owl-temp/
-*.pid
-.cursor/
