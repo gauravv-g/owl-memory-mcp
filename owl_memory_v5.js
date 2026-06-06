@@ -347,51 +347,68 @@ function updateHebbianTransition(fromNode, toNode) {
 
 function getRefractoryDilation(activeNodeId, projectId) {
   if (!activeNodeId) return [];
-  const nodes = db.prepare("SELECT * FROM code_nodes WHERE project = ?").all(projectId);
-  const dilated = [];
-  
-  for (const node of nodes) {
-    let state = "gas";
-    let gravity = 0;
-    
+  var nodes = db.prepare("SELECT * FROM code_nodes WHERE project = ?").all(projectId);
+  var dilated = [];
+  var contradictions = db.prepare("SELECT * FROM episodic_memories WHERE event_type = 'error' AND project = ?").all(projectId);
+  var now = Date.now();
+
+  for (var node of nodes) {
+    var state = "gas";
+    var gravity = 0;
+    var curvatureTensor = { spacetime: 0, hebbian: 0, errorDensity: 0, editFrequency: 0, recency: 0 };
+    var timeDilation = 1.0;
+    var darkMatterWarp = 0;
+    var insideEventHorizon = false;
     if (node.id === activeNodeId) {
       state = "solid";
       gravity = 1.0;
+      curvatureTensor = { spacetime: 1.0, hebbian: 1.0, errorDensity: 0, editFrequency: 0, recency: 1.0 };
     } else {
-      const dist = getCodePathDistance(activeNodeId, node.id);
-      const hebb = db.prepare("SELECT attention_weight FROM synaptic_weights WHERE source_id = ? AND target_id = ?").get(activeNodeId, node.id);
-      const weight = hebb ? hebb.attention_weight : 0.0;
-      
-      const gravityVal = (weight * 0.5) + (1.0 / (dist + 1) * 0.5);
-      gravity = Math.round(gravityVal * 100) / 100;
-      
-      if (dist <= 1 || weight > 0.4) {
+      var dist = getCodePathDistance(activeNodeId, node.id);
+      var hebb = db.prepare("SELECT attention_weight FROM synaptic_weights WHERE source_id = ? AND target_id = ?").get(activeNodeId, node.id);
+      var weight = hebb ? hebb.attention_weight : 0.0;
+      var editStats = db.prepare("SELECT edit_count, bug_count FROM code_nodes WHERE id = ?").get(node.id);
+      var editFreq = editStats && editStats.edit_count > 0 ? Math.min(editStats.edit_count / 10, 1) : 0;
+      var errorDensity = editStats && editStats.bug_count > 0 ? Math.min(editStats.bug_count / (editStats.edit_count + 1) * 2, 1) : 0;
+      var spacetimeCurvature = 1.0 / (dist + 1);
+      var hebbianCurvature = weight;
+      var recencyCurvature = node.created_at ? 1.0 - Math.min(1, (now - new Date(node.created_at).getTime()) / (86400000 * 14)) : 0;
+      curvatureTensor = {
+        spacetime: Math.round(spacetimeCurvature * 100) / 100,
+        hebbian: Math.round(hebbianCurvature * 100) / 100,
+        errorDensity: Math.round(errorDensity * 100) / 100,
+        editFrequency: Math.round(editFreq * 100) / 100,
+        recency: Math.round(recencyCurvature * 100) / 100
+      };
+      var tensorMagnitude = (spacetimeCurvature * 0.25 + hebbianCurvature * 0.25 + errorDensity * 0.20 + editFreq * 0.15 + recencyCurvature * 0.15);
+      var nodeContradictions = contradictions.filter(function(m){return m.content && (m.content.indexOf(node.name||"")>=0 || m.content.indexOf(node.id)>=0)});
+      var contradictionMass = nodeContradictions.length * 0.1;
+      darkMatterWarp = Math.min(contradictionMass, 0.5);
+      gravity = Math.round((tensorMagnitude + darkMatterWarp) * 100) / 100;
+      if (tensorMagnitude > 0.3 && node.created_at) {
+        var nodeAgeMs = now - new Date(node.created_at).getTime();
+        var nodeAgeHours = nodeAgeMs / 3600000;
+        timeDilation = 1.0 + (tensorMagnitude * 0.5) / (nodeAgeHours + 1);
+        timeDilation = Math.round(timeDilation * 100) / 100;
+      }
+      if (gravity > 0.65) {
+        insideEventHorizon = true;
+        state = "blackhole";
+      } else if (dist <= 1 || weight > 0.4 || gravity > 0.4) {
         state = "liquid";
       }
     }
-    
-    let representation = "";
+    var representation = "";
     if (state === "solid") {
-      representation = node.content || `// File content of ${node.id} is solid context.`;
-    } else if (state === "liquid") {
-      const clean = (node.content || "").split("\n").filter(line => {
-        const l = line.trim();
-        return l.startsWith("import") || l.startsWith("const ") || l.startsWith("require") || l.startsWith("function") || l.startsWith("class") || l.startsWith("export");
-      }).slice(0, 15).join("\n");
-      representation = `// File Outline: ${node.id}\n${clean || "(Outline empty)"}`;
-    } else {
-      representation = `// Concept: ${node.id} (${node.node_type})`;
+      representation = node.content || ("// File content of " + node.id);
+    } else if (state === "blackhole") {
+      representation = "[EVENT HORIZON - context trapped] node: " + (node.id || node.name) + ", curvature: " + gravity + ", dark_matter: " + darkMatterWarp;
     }
-    
-    dilated.push({
-      node_id: node.id,
-      state,
-      gravity,
-      representation
-    });
+    dilated.push({ id: node.id, name: node.name, filepath: node.filepath, state: state, gravity: gravity, curvature_tensor: curvatureTensor, time_dilation: timeDilation, dark_matter_warp: darkMatterWarp, inside_event_horizon: insideEventHorizon, representation: representation });
   }
-  return dilated.sort((a, b) => b.gravity - a.gravity).slice(0, 15);
+  return dilated.sort(function(a,b){return b.gravity - a.gravity}).slice(0, 15);
 }
+
 
 function runAutonomicDreamSimulation(projectId = "default") {
   const hotspots = calculateRefactoringHotspots(projectId);
@@ -465,39 +482,40 @@ function runAutonomicDreamSimulation(projectId = "default") {
   }
 }
 
-// ─── 1. ALBERT EINSTEIN: RELATIVISTIC CODE SPACE-TIME (Gravity) ─────────────
+// ─── 1. ALBERT EINSTEIN: RELATIVISTIC CODE SPACE-TIME (Gravity + Curvature Tensor + Time Dilation) ─────────────
 function calculateRelativisticGravity(activeNodeId, projectId) {
-  const memories = db.prepare("SELECT * FROM episodic_memories WHERE project = ? AND is_active = 1").all(projectId);
-  const ranked = [];
-  const now = Date.now();
-
-  for (const mem of memories) {
-    // Spatial call-graph distance
-    let minDistance = 4; // Max fallback
+  var memories = db.prepare("SELECT * FROM episodic_memories WHERE project = ? AND is_active = 1").all(projectId);
+  var ranked = [];
+  var now = Date.now();
+  var errorCount = db.prepare("SELECT COUNT(*) as cnt FROM episodic_memories WHERE project = ? AND event_type = 'error'").get(projectId);
+  var errorMass = errorCount ? Math.min(errorCount.cnt / 50, 1.0) : 0;
+  for (var mem of memories) {
+    var minDistance = 4;
     if (activeNodeId) {
-      const links = db.prepare("SELECT code_node_id FROM memory_code_links WHERE memory_id = ?").all(mem.id);
-      for (const link of links) {
+      var links = db.prepare("SELECT code_node_id FROM memory_code_links WHERE memory_id = ?").all(mem.id);
+      for (var link of links) {
         if (link.code_node_id === activeNodeId) { minDistance = 0; break; }
-        const dist = getCodePathDistance(activeNodeId, link.code_node_id);
+        var dist = getCodePathDistance(activeNodeId, link.code_node_id);
         if (dist < minDistance) minDistance = dist;
       }
     }
-
-    const ageHours = (now - new Date(mem.created_at).getTime()) / (3600 * 1000);
-    const emotionalWeight = 1.0 + Math.abs(mem.emotional_valence) * 0.5 + mem.emotional_arousal * 0.5;
-    const gravity = (mem.salience * emotionalWeight) / (Math.pow(minDistance + 1, 2) * Math.pow(ageHours + 1, 0.15));
-
-    ranked.push({
-      id: mem.id,
-      content: mem.content,
-      event_type: mem.event_type,
-      gravity: Math.round(gravity * 1000) / 1000,
-      spatial_distance: minDistance,
-      created_at: mem.created_at
-    });
+    var ageHours = (now - new Date(mem.created_at).getTime()) / (3600 * 1000);
+    var emotionalWeight = 1.0 + Math.abs(mem.emotional_valence) * 0.5 + mem.emotional_arousal * 0.5;
+    var curvatureSpacetime = 1.0 / (Math.pow(minDistance + 1, 2));
+    var curvatureEmotional = emotionalWeight * 0.3;
+    var curvatureSalience = mem.salience * 0.3;
+    var curvatureError = errorMass * 0.2;
+    var curvatureRecency = 1.0 / (Math.pow(ageHours + 1, 0.15));
+    var timeDilationFactor = 1.0;
+    if (minDistance <= 1 && ageHours < 24) {
+      timeDilationFactor = 1.0 + (1.0 / (ageHours + 1)) * 0.5;
+    }
+    var gravity = (curvatureSpacetime * mem.salience + curvatureEmotional * 0.25 + curvatureSalience * 0.25 + curvatureError * 0.15 + curvatureRecency * 0.15) * timeDilationFactor;
+    ranked.push({ id: mem.id, content: mem.content, event_type: mem.event_type, gravity: Math.round(gravity * 1000) / 1000, spatial_distance: minDistance, curvature_tensor: { spacetime: Math.round(curvatureSpacetime * 1000) / 1000, emotional: Math.round(curvatureEmotional * 1000) / 1000, salience: Math.round(curvatureSalience * 1000) / 1000, errorMass: Math.round(curvatureError * 1000) / 1000, recency: Math.round(curvatureRecency * 1000) / 1000 }, time_dilation_factor: Math.round(timeDilationFactor * 1000) / 1000, created_at: mem.created_at });
   }
-  return ranked.sort((a, b) => b.gravity - a.gravity).slice(0, 10);
+  return ranked.sort(function(a,b){return b.gravity - a.gravity}).slice(0, 10);
 }
+
 
 function getCodePathDistance(fromNode, toNode) {
   if (fromNode === toNode) return 0;
