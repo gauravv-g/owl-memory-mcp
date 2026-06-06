@@ -38,7 +38,6 @@ function getCurrentGitInfo(dirPath = ".") {
   }
 }
 
-// ─── Vector Embeddings & NER ────────────────────────────────────────────────
 let sqliteVecLoaded = false;
 let embedder = null;
 let embedderLoading = null;
@@ -145,7 +144,6 @@ async function generateEmbedding(text) {
 function hexToBigInt(hex) { return BigInt.asIntN(64, BigInt("0x" + hex)); }
 function bigIntToHex(bigint) { return BigInt.asUintN(64, bigint).toString(16).padStart(16, "0"); }
 
-// ─── Configuration & Database ───────────────────────────────────────────────
 const DB_PATH = process.env.OWL_MEMORY_DB || path.join(require("os").homedir(), ".owl-memory", "memory-v5.db");
 const DATA_DIR = path.dirname(DB_PATH);
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -160,7 +158,6 @@ if (hasVectors) {
   db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS episodic_embeddings USING vec0(embedding float[384])");
 }
 
-// ─── Unified SQLite Schema ──────────────────────────────────────────────────
 db.exec(`
   CREATE TABLE IF NOT EXISTS episodic_memories (
     id TEXT PRIMARY KEY, content TEXT NOT NULL, event_type TEXT DEFAULT 'observation',
@@ -292,7 +289,6 @@ db.exec(`
   );
 `);
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 function calculateSimilarity(a, b) {
   const w1 = new Set(a.toLowerCase().split(/\W+/).filter(w => w.length > 2));
   const w2 = new Set(b.toLowerCase().split(/\W+/).filter(w => w.length > 2));
@@ -409,80 +405,17 @@ function getRefractoryDilation(activeNodeId, projectId) {
   return dilated.sort(function(a,b){return b.gravity - a.gravity}).slice(0, 15);
 }
 
+function runAutonomicDreamSimulation(p){
+var h=calculateRefactoringHotspots(p);if(!h||!h.length)return{s:[],z:0};
+var r=[],f=require("fs");
+for(var t of h){var x;try{x=f.readFileSync(t.filepath,"utf8")}catch(e){}
+var o={f:t.filepath,hs:t.leverage_score,m:[]};
+if(x){if(x.indexOf("db.prepare")>=0)o.m.push({t:"db"});
+var rx=/require\s*\(\s*["']([^"']+)/;var m=rx.exec(x);if(m)o.m.push({t:"req",d:m[1]})
+}else o.m.push({t:"nf"});if(o.m.length)r.push(o)}
+try{var dn=db.prepare("SELECT id FROM code_nodes WHERE edit_count=0 AND bug_count=0 AND type='file'").all(p);for(var d of dn){var ed=db.prepare("SELECT source_id FROM code_edges WHERE target_id=?").all(d.id);if(ed.length)r.push({f:d.id,dead:1,imp:ed.length})}}catch(e){}
+return{s:"ok",n:r.length,r:r}}
 
-function runAutonomicDreamSimulation(projectId = "default") {
-  const hotspots = calculateRefactoringHotspots(projectId);
-  if (hotspots.length === 0) return { status: "no_hotspots_found" };
-
-  const target = hotspots[0];
-  const filepath = target.filepath;
-  const fullPath = path.resolve(process.cwd(), filepath);
-
-  if (!fs.existsSync(fullPath)) return { status: "file_not_found", filepath };
-
-  const tempDir = path.join(process.cwd(), ".owl-temp");
-  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-
-  const tempFile = path.join(tempDir, path.basename(filepath));
-  const now = new Date().toISOString();
-
-  try {
-    fs.copyFileSync(fullPath, tempFile);
-
-    let content = fs.readFileSync(tempFile, "utf-8");
-    let mutated = false;
-    if (content.includes("db.prepare")) {
-      content = content.replace("db.prepare", "/* BRS MUTATION */ undefined.prepare");
-      mutated = true;
-    } else if (content.includes("require")) {
-      content = content.replace("require", "/* BRS MUTATION */ undefined.require");
-      mutated = true;
-    }
-
-    if (!mutated) {
-      content = "throw new SyntaxError('BRS AUTONOMIC MUTATION FAILURE');\n" + content;
-    }
-
-    fs.writeFileSync(tempFile, content, "utf-8");
-
-    let stdout = "", stderr = "", code = 0;
-    try {
-      execSync(`node -c "${tempFile}"`, { encoding: "utf-8", stdio: "pipe" });
-    } catch (err) {
-      stderr = err.message + "\n" + (err.stderr || "");
-      code = err.status || 1;
-    }
-
-    let harvestResult = null;
-    if (code !== 0) {
-      const errorLog = stderr || stdout;
-      const simId = generateId(errorLog, "dream_sim");
-      db.prepare(`
-        INSERT INTO threat_patterns (pattern_name, description, trigger_conditions, severity, created_at)
-        VALUES (?, ?, ?, 'high', ?)
-      `).run(`SIM_${simId}`, `Simulated mutation failure in ${filepath}: ${errorLog.slice(0, 200)}`, JSON.stringify({ file: filepath, mutation: "syntax_break" }), now);
-      
-      harvestResult = { status: "logged_threat", pattern_name: `SIM_${simId}` };
-    }
-
-    return {
-      status: "completed",
-      mutated_file: filepath,
-      exit_code: code,
-      harvest_result: harvestResult
-    };
-
-  } catch (err) {
-    return { status: "failed", error: err.message };
-  } finally {
-    try {
-      if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-      if (fs.existsSync(tempDir)) fs.rmdirSync(tempDir);
-    } catch (e) {}
-  }
-}
-
-// ─── 1. ALBERT EINSTEIN: RELATIVISTIC CODE SPACE-TIME (Gravity + Curvature Tensor + Time Dilation) ─────────────
 function calculateRelativisticGravity(activeNodeId, projectId) {
   var memories = db.prepare("SELECT * FROM episodic_memories WHERE project = ? AND is_active = 1").all(projectId);
   var ranked = [];
@@ -516,7 +449,6 @@ function calculateRelativisticGravity(activeNodeId, projectId) {
   return ranked.sort(function(a,b){return b.gravity - a.gravity}).slice(0, 10);
 }
 
-
 function getCodePathDistance(fromNode, toNode) {
   if (fromNode === toNode) return 0;
   const visited = new Set();
@@ -535,7 +467,6 @@ function getCodePathDistance(fromNode, toNode) {
   return 4;
 }
 
-// ─── 2. NIKOLA TESLA: SYNAPTIC GRAPH RESONANCE (Energy Wave) ────────────────
 function propagateTeslaResonance(activeNodeId, steps = 15) {
   if (!activeNodeId) return [];
 
@@ -628,9 +559,8 @@ function propagateTeslaResonance(activeNodeId, steps = 15) {
   return resonanceMemories.sort((a, b) => b.activation - a.activation);
 }
 
-// ─── 3. ELON MUSK: SURPRISE-GATED ERROR HARVESTER (ACh Gated plastic writes) 
 async function harvestErrorMusk(errorMessage, command = "test", projectId = "default") {
-  // Simple stack trace parser
+  
   let filepath = "unknown_file";
   let lineNumber = 0;
   let functionName = "anonymous";
@@ -693,7 +623,6 @@ async function harvestErrorMusk(errorMessage, command = "test", projectId = "def
   return { status: "success", memory_id: memId, codeNodeId, surpriseScore };
 }
 
-// ─── 4. PETER THIEL: INVARIANT CODE SECRETS (Comment vs History Contradictions) 
 function checkContrarianSecrets(activeFile, codeSnippet, projectId = "default") {
   if (!activeFile) return [];
   const relPath = activeFile.replace(/\\/g, "/");
@@ -770,7 +699,6 @@ function checkContrarianSecrets(activeFile, codeSnippet, projectId = "default") 
   return secrets;
 }
 
-// ─── 5. NAVAL RAVIKANT: LEVERAGED STRUCTURAL ROI (Edit/Bug Hotspots) ─────────
 function calculateRefactoringHotspots(projectId) {
   const nodes = db.prepare(`
     SELECT id, name, node_type, filepath, edit_count, bug_count FROM code_nodes
@@ -793,7 +721,6 @@ function calculateRefactoringHotspots(projectId) {
   return hotspots.sort((a, b) => b.leverage_score - a.leverage_score).slice(0, 5);
 }
 
-// ─── 6. RATAN TATA: VENDOR STEWARDSHIP LEDGER (Dependency Health) ────────────
 function checkDependencyStewardship(activeFile) {
   if (!activeFile) return [];
   const relPath = activeFile.replace(/\\/g, "/");
@@ -830,7 +757,6 @@ function checkDependencyStewardship(activeFile) {
   return alerts;
 }
 
-// ─── 7. LEONARDO DA VINCI: ANATOMICAL SELF-HEALING CALL PATHS ───────────────
 function calculateDaVinciHealing(activeNodeId) {
   if (!activeNodeId) return null;
   // Get downstream calls from this node
@@ -864,7 +790,6 @@ function calculateDaVinciHealing(activeNodeId) {
   return recommendations;
 }
 
-// ─── 8. LINUS TORVALDS: GIT-NATIVE SEMANTIC MERGING ─────────────────────────
 function mergeGitBranchMemories(sourceBranch, targetBranch, projectId = "default") {
   const sourceMems = db.prepare(`
     SELECT em.* FROM episodic_memories em
@@ -911,7 +836,6 @@ function mergeGitBranchMemories(sourceBranch, targetBranch, projectId = "default
   return { mergedCount, contradictionCount };
 }
 
-// ─── Consolidation (Dream Cycle) ─────────────────────────────────────────────
 function consolidateMemories(projectId) {
   const now = new Date().toISOString();
   const active = db.prepare("SELECT id, content, strength FROM episodic_memories WHERE is_active = 1 AND project = ?").all(projectId);
@@ -1077,7 +1001,6 @@ function chronoPruneWorkspace(projectId) {
   }
 }
 
-// ─── MCP Server Setup ────────────────────────────────────────────────────────
 const server = new Server(
   { name: "owl-memory", version: "5.0.0" },
   { capabilities: { tools: {}, resources: {} } }
@@ -1387,7 +1310,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-// ─── Resource Helpers ────────────────────────────────────────────────────────
 function generate10YearOldExplanation(node) {
   if (node.group === "file") {
     const filePath = node.id.toLowerCase();
@@ -1599,7 +1521,6 @@ async function getGraphData() {
   return { nodes, edges: cleanEdges };
 }
 
-// ─── Resources ──────────────────────────────────────────────────────────────
 server.setRequestHandler(ListResourcesRequestSchema, async () => [
   { uri: "owl-memory://graph", name: "Memory Graph v5", description: "V5 memory nodes and call links", mimeType: "application/json" },
   { uri: "owl-memory://graph-ui", name: "Memory Graph UI", description: "Interactive force-directed graph visualization with 10-year-old explanations", mimeType: "text/html" }
