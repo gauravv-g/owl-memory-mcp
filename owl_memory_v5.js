@@ -1193,7 +1193,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               refactoring_hotspots: hotspots,
               self_healing_suggestions: healingMocks,
               dilated_context: dilatedContext
-            }, null, 2)
+            })
           }]
         };
       }
@@ -1289,7 +1289,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               stdout: stdout.slice(0, 1000),
               stderr: stderr.slice(0, 1000),
               surprise_harvest: harvestResult
-            }, null, 2)
+            })
           }]
         };
       }
@@ -1530,7 +1530,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const uri = request.params.uri;
   if (uri === "owl-memory://graph") {
     const data = await getGraphData();
-    return { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(data, null, 2) }] };
+    return { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(data) }] };
   }
   if (uri === "owl-memory://graph-ui") {
     const data = await getGraphData();
