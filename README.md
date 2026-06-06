@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/owl_logo.png" width="110" height="110" alt="OWL Memory Logo" />
+</p>
+
 # Your AI forgets. And sometimes it lies. OWL fixes both.
 
 **OWL Memory MCP** — The only local AI memory system that reasons, warns, detects hallucinations, and thinks. Not just stores.
