@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="assets/owl_logo.png" width="110" height="110" alt="OWL Memory Logo" />
+  <img src="assets/owl_logo.png" width="100" height="100" alt="OWL Memory Logo" />
 </p>
 
-# Your AI forgets. And sometimes it lies. OWL fixes both.
-
-**OWL Memory MCP** — The only local AI memory system that reasons, warns, detects hallucinations, and thinks. Not just stores.
+<p align="center">
+  <img src="assets/banner.png" width="100%" alt="OWL Memory — Your AI forgets. And sometimes it lies. OWL fixes both." />
+</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Tools-55%2B-blueviolet?style=for-the-badge" />
@@ -15,6 +15,7 @@
 </p>
 
 <p align="center">
+  <strong>The only local AI memory that reasons, warns, detects hallucinations, and thinks.</strong><br/>
   Works with <strong>Claude Desktop · Cursor · Windsurf · Antigravity</strong>
 </p>
 
