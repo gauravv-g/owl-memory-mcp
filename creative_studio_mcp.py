@@ -1,46 +1,26 @@
-"""
-Creative Studio MCP Server
-==========================
-Exposes narrative production capabilities as MCP tools.
-
-Tools:
-  generate_story_bible     - Generate complete character/world/plot bible from prompt
-  check_continuity         - Cross-check story against bible for continuity errors
-  calibrate_heat           - Analyze and calibrate sexual content heat level (1-4)
-  score_prose              - Score prose quality across 10 dimensions
-  export_format            - Export story to screenplay/branching/interactive format
-  grammar_check_v2         - Advanced Hindi/Hinglish grammar checker with context awareness
-  trope_innovate           - Generate novel trope combinations beyond existing patterns
-  character_voice_check    - Verify character voice consistency across scenes
-  scene_pacing_analysis    - Analyze scene-level pacing, tension arcs, climax placement
-  brainstorm_narrative     - Generate high-concept story ideas with full structure
-  series_continuity_db     - Store/retrieve series-wide continuity data
-
-Architecture: follows owl_web_mcp.py pattern.
-Run: python creative_studio_mcp.py
-"""
+"""Creative Studio MCP v4 — 10 tools: bible-aware grammar/continuity, trend-tracking scores, DB-deduped trope innovation."""
 
 import asyncio
 import json
-import sys
 import os
 import re
 import sqlite3
 import hashlib
+import traceback
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Optional
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MCP SDK import
+# MCP SDK import — graceful degradation
 # ─────────────────────────────────────────────────────────────────────────────
 try:
     from mcp.server import Server
     from mcp.server.stdio import stdio_server
     from mcp.types import Tool, TextContent
 except ImportError:
-    print("ERROR: mcp package not found. Run: pip install mcp", file=sys.stderr)
-    sys.exit(1)
+    print("ERROR: mcp package not found. Run: pip install mcp", file=__import__("sys").stderr)
+    raise SystemExit(1)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -48,21 +28,83 @@ except ImportError:
 CREATIVE_STUDIO_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "creative_studio.db")
 TOOLKIT_DIR = r"C:\Users\shiva\creative-writing-toolkit"
 PROJECTS_DIR = os.path.join(TOOLKIT_DIR, "projects")
-SCRIPTS_DIR = os.path.join(TOOLKIT_DIR, "scripts")
+
+# Shared exclude set for name detection — used by continuity, grammar, voice check
+COMMON_NAME_EXCLUDES = {
+    "The", "She", "His", "Her", "This", "That", "What", "When", "Then",
+    "Than", "There", "Their", "And", "But", "Not", "All", "For", "Was",
+    "Has", "Had", "With", "Into", "From", "About", "Between", "Through",
+    "After", "Before", "Under", "Over", "Above", "Below", "During",
+}
+
+# Shared grammar rules — single source of truth for Hindi/Hinglish grammar
+# Format: (regex_pattern, fix, category)
+GRAMMAR_VERB_RULES = [
+    (r'\bmaine bola\b', 'maine boli', 'female past verb'),
+    (r'\bmaine pucha\b', 'maine puchi', 'female past verb'),
+    (r'\bmaine dekha\b', 'maine dekhi', 'female past verb'),
+    (r'\bmaine kiya\b', 'maine ki', 'female past verb'),
+    (r'\bmain gaya\b', 'main gayi', 'female past verb'),
+    (r'\bmain aaya\b', 'main aayi', 'female past verb'),
+    (r'\brehta hoon\b', 'rehti hoon', 'female present verb'),
+    (r'\bdekhta hoon\b', 'dekhti hoon', 'female present verb'),
+    (r'\bkarta hoon\b', 'karti hoon', 'female present verb'),
+    (r'\bbolta hoon\b', 'bolti hoon', 'female present verb'),
+    (r'\bsochta hoon\b', 'sochti hoon', 'female present verb'),
+    (r'\bsochta tha\b', 'sochti thi', 'female past continuous'),
+    (r'\bchahta tha\b', 'chahti thi', 'female past continuous'),
+]
+
+GRAMMAR_ADJ_RULES = [
+    (r'\bbada chut\b', 'badi chut', 'adj-noun gender'),
+    (r'\bbhara chut\b', 'bhari chut', 'adj-noun gender'),
+    (r'\bgandh hai\b', 'gandi hai', 'adj-noun gender'),
+    (r'\bgand ladki\b', 'gandi ladki', 'adj-noun gender'),
+    (r'\bbada gand\b', 'badi gand', 'adj-noun gender'),
+    (r'\bbhara gand\b', 'bhari gand', 'adj-noun gender'),
+]
+
+GRAMMAR_FAKE_WORDS = ['thai', '刺激', 'dekhtoon']
+
+# Position markers for sex scene tracking
+POSITION_MARKERS = {
+    'doggy': ['doggy', 'peeche se', 'peeth ke peeche', 'behind'],
+    'missionary': ['upar', 'neeche', 'face to face', 'missionary'],
+    'oral': ['muh', 'mouth', 'chusna', 'suck', 'blowjob'],
+    'anal': ['gaand', 'ass', 'anal'],
+}
+
+# Explicit terms for heat calibration
+EXPLICIT_TERMS = [
+    'lund', 'chut', 'gaand', 'chu', 'maal', 'chod', 'chus',
+    'boobs', 'cock', 'cunt', 'fuck', 'ass', 'cum',
+]
+
+# AI-speak vocabulary for prose scoring
+AI_WORDS = [
+    'delve', 'tapestry', 'pivotal', 'crucial', 'robust',
+    'comprehensive', 'nuanced', 'furthermore', 'moreover',
+]
+
+FILTER_WORDS = ['felt', 'saw', 'heard', 'noticed', 'realized', 'thought', 'knew']
+
+SENSORY_WORDS = ['smell', 'taste', 'touch', 'sound', 'sight', 'gandh', 'swaad', 'chhoona', 'suna', 'dekha']
+
+EMOTIONAL_WORDS = ['heart', 'soul', 'cry', 'tears', 'love', 'hate', 'fear', 'desire', 'dard', 'pyaar', 'nafrat']
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Database setup
+# Database — shared context manager
 # ─────────────────────────────────────────────────────────────────────────────
-def init_db():
-    conn = sqlite3.connect(CREATIVE_STUDIO_DB)
-    c = conn.cursor()
-    c.executescript("""
+def _create_tables(conn):
+    """Idempotent table creation. Safe to call multiple times."""
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS series_bibles (
             id TEXT PRIMARY KEY,
             name TEXT,
             created_at TEXT,
             updated_at TEXT,
-            bible_json TEXT  -- Full story bible as JSON
+            bible_json TEXT
         );
         CREATE TABLE IF NOT EXISTS continuity_checks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,7 +118,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             story_file TEXT,
             scored_at TEXT,
-            scores_json TEXT,  -- 10-dimension scores
+            scores_json TEXT,
             total_score REAL
         );
         CREATE TABLE IF NOT EXISTS heat_calibrations (
@@ -94,18 +136,71 @@ def init_db():
             created_at TEXT
         );
     """)
-    conn.commit()
-    return conn
+
+
+@contextmanager
+def db():
+    """Shared DB context manager. Opens connection, ensures tables exist, yields, commits, closes."""
+    conn = sqlite3.connect(CREATIVE_STUDIO_DB)
+    _create_tables(conn)
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# App server
+# Bible helpers
+# ─────────────────────────────────────────────────────────────────────────────
+def load_bible(series_id: str) -> Optional[dict]:
+    """Load series bible from DB by ID. Returns None if not found."""
+    with db() as conn:
+        row = conn.execute("SELECT bible_json FROM series_bibles WHERE id = ?", (series_id,)).fetchone()
+    if row:
+        return json.loads(row[0])
+    return None
+
+
+def auto_detect_series(story_file: str) -> Optional[str]:
+    """Auto-detect series ID from story file path (matches project directory to bible name)."""
+    with db() as conn:
+        rows = conn.execute("SELECT id, name FROM series_bibles").fetchall()
+    story_dir = os.path.basename(os.path.dirname(story_file)).lower().replace("-", " ")
+    for sid, sname in rows:
+        if sname.lower() in story_dir or story_dir in sname.lower():
+            return sid
+    return None
+
+
+def get_bible_character_names(bible: dict) -> dict:
+    """Extract character names and their genders from bible.
+    Returns {name: gender} where gender is 'male', 'female', or 'unknown'.
+    """
+    result = {}
+    for char in bible.get("characters", []):
+        name = char.get("name", "")
+        if name and name != "[TO BE NAMED]":
+            # Infer gender from voice_markers or default unknown
+            markers = " ".join(char.get("voice_markers", [])).lower()
+            if any(m in markers for m in ["female", "woman", "girl", "ladki", "aurat"]):
+                result[name] = "female"
+            elif any(m in markers for m in ["male", "man", "boy", "ladka", "mard"]):
+                result[name] = "male"
+            else:
+                result[name] = "unknown"
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MCP Server
 # ─────────────────────────────────────────────────────────────────────────────
 app = Server("creative-studio")
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# TOOL: generate_story_bible
-# ═════════════════════════════════════════════════════════════════════════════
 @app.list_tools()
 async def list_tools():
     return [
@@ -152,7 +247,7 @@ async def list_tools():
         ),
         Tool(
             name="score_prose",
-            description="Score prose across 10 dimensions: hook, character_depth, dialogue_quality, pacing, prose_quality, world_emersion, emotional_impact, surprise_originality, ending_satisfaction, ai_speak_elimination. Returns per-dimension scores and total.",
+            description="Score prose across 10 dimensions: hook, character_depth, dialogue_quality, pacing, prose_quality, world_emersion, emotional_impact, surprise_originality, ending_satisfaction, ai_speak_elimination. Returns per-dimension scores and total. Compares to previous scores for trend tracking.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -176,21 +271,22 @@ async def list_tools():
         ),
         Tool(
             name="grammar_check_v2",
-            description="Advanced Hindi/Hinglish grammar checker. Checks female verb forms, adjective-noun gender agreement, fake words, name consistency, foreign character contamination, position/timeline consistency. Returns line-by-line error report with fixes.",
+            description="Advanced Hindi/Hinglish grammar checker. Checks female verb forms, adjective-noun gender agreement, fake words, name consistency, position/timeline consistency. Bible-aware: reads character genders from series bible instead of hardcoded names.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "story_file": {"type": "string", "description": "Path to the story file"},
                     "narrator_gender": {"type": "string", "enum": ["female", "male"], "description": "Narrator gender (default: auto-detect)"},
                     "check_positions": {"type": "boolean", "description": "Check sex position consistency (default: true)"},
-                    "check_timeline": {"type": "boolean", "description": "Check timeline/logic consistency (default: true)"}
+                    "check_timeline": {"type": "boolean", "description": "Check timeline/logic consistency (default: true)"},
+                    "series_id": {"type": "string", "description": "Series DB ID for bible-aware checking (optional, auto-detect)"}
                 },
                 "required": ["story_file"]
             }
         ),
         Tool(
             name="trope_innovate",
-            description="Generate novel trope combinations that don't exist in existing databases. Analyzes input tropes and generates unexpected fusions, inversions, and innovations. Returns structured innovation report.",
+            description="Generate novel trope combinations that don't exist in existing databases. Analyzes input tropes and generates unexpected fusions, inversions, and innovations. DB-deduped: avoids re-generating previously created combinations.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -242,10 +338,6 @@ async def list_tools():
     ]
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# Tool handlers
-# ═════════════════════════════════════════════════════════════════════════════
-
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list:
     handlers = {
@@ -263,18 +355,18 @@ async def call_tool(name: str, arguments: dict) -> list:
 
     handler = handlers.get(name)
     if not handler:
-        return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
+        return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}, ensure_ascii=False))]
 
     try:
         result = await handler(arguments)
-        return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+        return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False))]
     except Exception as e:
-        return [TextContent(type="text", text=json.dumps({"error": str(e), "traceback": traceback.format_exc()}))]
+        return [TextContent(type="text", text=json.dumps({"error": str(e), "traceback": traceback.format_exc()}, ensure_ascii=False))]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
 # Handler: generate_story_bible
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
 async def handle_generate_bible(args: dict) -> dict:
     series_name = args["series_name"]
     genre = args["genre"]
@@ -322,12 +414,11 @@ async def handle_generate_bible(args: dict) -> dict:
         }
     }
 
-    # Generate character templates
     for i in range(num_chars):
         bible["characters"].append({
             "id": f"char_{i+1}",
             "role": "protagonist" if i == 0 else "deuteragonist" if i == 1 else "supporting",
-            "name": f"[TO BE NAMED]",
+            "name": "[TO BE NAMED]",
             "age": 0,
             "physical_description": "",
             "voice_markers": [],
@@ -335,16 +426,12 @@ async def handle_generate_bible(args: dict) -> dict:
             "relationships": {}
         })
 
-    # Save to DB
-    conn = init_db()
-    conn.execute(
-        "INSERT OR REPLACE INTO series_bibles (id, name, created_at, updated_at, bible_json) VALUES (?, ?, ?, ?, ?)",
-        (series_id, series_name, now, now, json.dumps(bible, ensure_ascii=False))
-    )
-    conn.commit()
-    conn.close()
+    with db() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO series_bibles (id, name, created_at, updated_at, bible_json) VALUES (?, ?, ?, ?, ?)",
+            (series_id, series_name, now, now, json.dumps(bible, ensure_ascii=False))
+        )
 
-    # Save bible file
     bible_path = os.path.join(PROJECTS_DIR, series_name.lower().replace(" ", "-"), "00-story-bible.json")
     os.makedirs(os.path.dirname(bible_path), exist_ok=True)
     with open(bible_path, "w", encoding="utf-8") as f:
@@ -356,16 +443,16 @@ async def handle_generate_bible(args: dict) -> dict:
         "bible_path": bible_path,
         "bible": bible,
         "next_steps": [
-            "Fill in character names and details",
+            "Fill in character names, genders (voice_markers), and details",
             "Use check_continuity before each chapter delivery",
             "Use calibrate_heat to ensure consistent heat level"
         ]
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Handler: check_continuity
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+# Handler: check_continuity — bible-aware
+# ═════════════════════════════════════════════════════════════════════════════
 async def handle_check_continuity(args: dict) -> dict:
     story_file = args["story_file"]
     series_id = args.get("series_id")
@@ -377,61 +464,61 @@ async def handle_check_continuity(args: dict) -> dict:
         content = f.read()
         lines = content.split("\n")
 
+    # Auto-detect series if not provided
+    if not series_id:
+        series_id = auto_detect_series(story_file)
+
+    # Load bible for cross-referencing
+    bible = load_bible(series_id) if series_id else None
+    bible_names = get_bible_character_names(bible) if bible else {}
+
     errors = []
     warnings = []
 
-    # Name consistency check
+    # Name consistency: detect all capitalized names in text
     name_pattern = re.compile(r'\b([A-Z][a-z]{2,})\b')
     potential_names = set()
     for line in lines:
         for match in name_pattern.finditer(line):
             name = match.group(1)
-            if name not in ["The", "She", "His", "Her", "This", "That", "What", "When", "Then", "Than", "There", "Their"]:
+            if name not in COMMON_NAME_EXCLUDES:
                 potential_names.add(name)
 
-    # Check for Hindi grammar (female narrator patterns)
-    female_verb_errors = [
-        (r'\bmaine bola\b', 'maine boli', 'female verb form'),
-        (r'\bmaine pucha\b', 'maine puchi', 'female verb form'),
-        (r'\bmaine dekha\b', 'maine dekhi', 'female verb form'),
-        (r'\bmaine kiya\b', 'maine ki', 'female verb form'),
-        (r'\bmain gaya\b', 'main gayi', 'female verb form'),
-        (r'\bmain aaya\b', 'main aayi', 'female verb form'),
-        (r'\brehta hoon\b', 'rehti hoon', 'female verb form'),
-        (r'\bdekhta hoon\b', 'dekhti hoon', 'female verb form'),
-        (r'\bkarta hoon\b', 'karti hoon', 'female verb form'),
-        (r'\bbolta hoon\b', 'bolti hoon', 'female verb form'),
-    ]
+    # Check for names in text that aren't in bible (if bible exists)
+    if bible_names:
+        for name in potential_names:
+            if name not in bible_names:
+                warnings.append(f"  [unknown name] '{name}' found in story but not in series bible")
 
+    # Grammar checks using shared rules
     for i, line in enumerate(lines, 1):
-        for pattern, fix, category in female_verb_errors:
-            if re.search(pattern, line, re.IGNORECASE):
-                # Skip if clearly male character dialogue
-                if line.strip().startswith('"') and any(n in line for n in ['Rohan', 'Rohit', 'Papa', 'Bhai', 'Beta', 'Amit', 'Vikram']):
-                    continue
-                errors.append(f"  Line {i} [{category}]: '{pattern}' → '{fix}' | Context: {line.strip()[:80]}")
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#') or stripped.startswith('---'):
+            continue
 
-        # Adjective-noun gender
-        for pattern, fix in [(r'\bbada chut\b', 'badi chut'), (r'\bbhara chut\b', 'bhari chut'), (r'\bgandh hai\b', 'gandi hai')]:
-            if re.search(pattern, line, re.IGNORECASE):
-                errors.append(f"  Line {i} [adj-noun gender]: '{pattern}' → '{fix}' | Context: {line.strip()[:80]}")
+        for pattern, fix, category in GRAMMAR_VERB_RULES:
+            if re.search(pattern, stripped, re.IGNORECASE):
+                # Skip male character dialogue — use bible if available, else fallback
+                if stripped.startswith('"'):
+                    male_from_bible = [n for n, g in bible_names.items() if g == "male"]
+                    check_names = male_from_bible if male_from_bible else ['Rohan', 'Rohit', 'Papa', 'Bhai', 'Beta', 'Amit', 'Vikram', 'Raj', 'Arjun', 'Karan']
+                    if any(n in stripped for n in check_names):
+                        continue
+                errors.append(f"  Line {i} [{category}]: '{pattern}' → '{fix}' | Context: {stripped[:80]}")
 
-        # Fake words
-        for fw in ['thai', '刺激']:
-            if fw in line:
-                errors.append(f"  Line {i} [fake word]: '{fw}' found | Context: {line.strip()[:80]}")
+        for pattern, fix, category in GRAMMAR_ADJ_RULES:
+            if re.search(pattern, stripped, re.IGNORECASE):
+                errors.append(f"  Line {i} [{category}]: '{pattern}' → '{fix}' | Context: {stripped[:80]}")
 
-    # Position consistency for sex scenes
-    position_markers = {
-        'doggy': ['doggy', 'peeche se', 'peeth ke peeche', 'behind'],
-        'missionary': ['upar', 'neeche', 'face to face', 'missionary'],
-        'oral': ['muh', 'mouth', 'chusna', 'suck', 'blowjob'],
-        'anal': ['gaand', 'ass', 'anal'],
-    }
+        for fw in GRAMMAR_FAKE_WORDS:
+            if fw in stripped:
+                errors.append(f"  Line {i} [fake word]: '{fw}' found | Context: {stripped[:80]}")
+
+    # Position consistency
     active_position = None
     for i, line in enumerate(lines, 1):
         line_lower = line.lower()
-        for pos, markers in position_markers.items():
+        for pos, markers in POSITION_MARKERS.items():
             if any(m in line_lower for m in markers):
                 if active_position and active_position != pos:
                     warnings.append(f"  Line {i} [position change]: {active_position} → {pos} (ensure transition is explicit)")
@@ -440,31 +527,31 @@ async def handle_check_continuity(args: dict) -> dict:
     result = {
         "status": "success" if not errors else "errors_found",
         "file": story_file,
+        "series_id": series_id,
+        "bible_loaded": bible is not None,
         "total_lines": len(lines),
         "errors": errors,
         "warnings": warnings,
         "potential_names_found": sorted(potential_names),
+        "bible_character_names": list(bible_names.keys()) if bible_names else [],
         "summary": f"{len(errors)} errors, {len(warnings)} warnings across {len(lines)} lines"
     }
 
-    # Save to DB
-    conn = init_db()
-    conn.execute(
-        "INSERT INTO continuity_checks (series_id, story_file, checked_at, errors_json) VALUES (?, ?, ?, ?)",
-        (series_id or "unknown", story_file, datetime.now(timezone.utc).isoformat(), json.dumps(result, ensure_ascii=False))
-    )
-    conn.commit()
-    conn.close()
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO continuity_checks (series_id, story_file, checked_at, errors_json) VALUES (?, ?, ?, ?)",
+            (series_id or "unknown", story_file, datetime.now(timezone.utc).isoformat(), json.dumps(result, ensure_ascii=False))
+        )
 
     return result
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
 # Handler: calibrate_heat
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
 async def handle_calibrate_heat(args: dict) -> dict:
     story_file = args["story_file"]
-    target_level = args.get("target_level", 0)  # 0 means analyze only
+    target_level = args.get("target_level", 0)
 
     if not os.path.exists(story_file):
         return {"error": f"File not found: {story_file}"}
@@ -474,26 +561,18 @@ async def handle_calibrate_heat(args: dict) -> dict:
         lines = content.split("\n")
         word_count = len(content.split())
 
-    # Count explicit markers
-    explicit_terms = [
-        'lund', 'chut', 'gaand', 'chu', 'maal', 'chod', 'chus',
-        'boobs', 'cock', 'cunt', 'fuck', 'ass', 'cum'
-    ]
-    explicit_density = sum(content.lower().count(t) for t in explicit_terms) / max(word_count, 1) * 100
+    explicit_density = sum(content.lower().count(t) for t in EXPLICIT_TERMS) / max(word_count, 1) * 100
 
-    # Count mechanical/physical detail lines (action-oriented short lines)
     action_lines = sum(1 for l in lines if l.strip() and len(l.strip().split()) <= 8 and any(
         w in l.lower() for w in ['ne', 'ki', 'ka', 'se', 'mein', 'ko', 'par']
     ))
     action_ratio = action_lines / max(len(lines), 1) * 100
 
-    # Count emotional/reflective lines
     emotional_lines = sum(1 for l in lines if any(
         w in l.lower() for w in ['feel', 'heart', 'soul', 'thought', 'knew', 'wanted', 'needed', 'sochi', 'lagta', 'mehsoos']
     ))
     emotional_ratio = emotional_lines / max(len(lines), 1) * 100
 
-    # Heat level estimation
     if explicit_density > 5 and action_ratio > 40:
         current_level = 4
     elif explicit_density > 3 and action_ratio > 30:
@@ -539,21 +618,18 @@ async def handle_calibrate_heat(args: dict) -> dict:
         "suggestions": suggestions
     }
 
-    # Save to DB
-    conn = init_db()
-    conn.execute(
-        "INSERT INTO heat_calibrations (story_file, calibrated_at, current_level, target_level, suggestions_json) VALUES (?, ?, ?, ?, ?)",
-        (story_file, datetime.now(timezone.utc).isoformat(), current_level, target_level, json.dumps(suggestions))
-    )
-    conn.commit()
-    conn.close()
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO heat_calibrations (story_file, calibrated_at, current_level, target_level, suggestions_json) VALUES (?, ?, ?, ?, ?)",
+            (story_file, datetime.now(timezone.utc).isoformat(), current_level, target_level, json.dumps(suggestions))
+        )
 
     return result
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Handler: score_prose
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+# Handler: score_prose — with trend tracking
+# ═════════════════════════════════════════════════════════════════════════════
 async def handle_score_prose(args: dict) -> dict:
     story_file = args["story_file"]
 
@@ -565,18 +641,17 @@ async def handle_score_prose(args: dict) -> dict:
         lines = content.split("\n")
         word_count = len(content.split())
 
-    # Scoring heuristics
     scores = {}
 
-    # 1. Hook (first 3 lines)
+    # 1. Hook (first 5 lines)
     opening = "\n".join(lines[:5])
     hook_score = 5
     if any(w in opening.lower() for w in ['name', 'naam', 'main', 'mera']):
-        hook_score += 1  # Direct first person = good hook
+        hook_score += 1
     if len([l for l in lines[:5] if l.strip()]) >= 3:
-        hook_score += 1  # Dense opening
+        hook_score += 1
     if any(w in opening.lower() for w in ['!', '?', '—', '...']):
-        hook_score += 1  # Punctuation = energy
+        hook_score += 1
     scores["hook"] = min(hook_score, 10)
 
     # 2. Character depth (dialogue variety)
@@ -596,23 +671,19 @@ async def handle_score_prose(args: dict) -> dict:
         scores["pacing"] = 3
 
     # 5. Prose quality (filter words, AI vocabulary)
-    ai_words = ['delve', 'tapestry', 'pivotal', 'crucial', 'robust', 'comprehensive', 'nuanced', 'furthermore', 'moreover']
-    ai_count = sum(content.lower().count(w) for w in ai_words)
-    filter_words = ['felt', 'saw', 'heard', 'noticed', 'realized', 'thought', 'knew']
-    filter_count = sum(content.lower().count(f" {w} ") for w in filter_words)
+    ai_count = sum(content.lower().count(w) for w in AI_WORDS)
+    filter_count = sum(content.lower().count(f" {w} ") for w in FILTER_WORDS)
     scores["prose_quality"] = max(10 - (ai_count + filter_count) / max(word_count, 1) * 100, 3)
 
     # 6. World immersion (sensory details)
-    sensory = ['smell', 'taste', 'touch', 'sound', 'sight', 'gandh', 'swaad', 'chhoona', 'suna', 'dekha']
-    sensory_count = sum(content.lower().count(w) for w in sensory)
+    sensory_count = sum(content.lower().count(w) for w in SENSORY_WORDS)
     scores["world_emersion"] = min(sensory_count / max(word_count, 1) * 500, 10)
 
     # 7. Emotional impact
-    emotional = ['heart', 'soul', 'cry', 'tears', 'love', 'hate', 'fear', 'desire', 'dard', 'pyaar', 'nafrat']
-    emotional_count = sum(content.lower().count(w) for w in emotional)
+    emotional_count = sum(content.lower().count(w) for w in EMOTIONAL_WORDS)
     scores["emotional_impact"] = min(emotional_count / max(word_count, 1) * 300, 10)
 
-    # 8. Surprise/originality (unexpected word combinations - proxy: rare word ratio)
+    # 8. Surprise/originality (unique word ratio)
     words = content.lower().split()
     if words:
         unique_ratio = len(set(words)) / len(words)
@@ -629,6 +700,31 @@ async def handle_score_prose(args: dict) -> dict:
 
     total = sum(scores.values()) / len(scores)
 
+    # Trend tracking: compare to previous scores for same file
+    trend = None
+    with db() as conn:
+        prev = conn.execute(
+            "SELECT scores_json, total_score FROM prose_scores WHERE story_file = ? ORDER BY scored_at DESC LIMIT 1",
+            (story_file,)
+        ).fetchone()
+
+        if prev:
+            prev_scores = json.loads(prev[0])
+            prev_total = prev[1]
+            dimension_deltas = {k: round(scores[k] - prev_scores.get(k, 0), 1) for k in scores}
+            trend = {
+                "previous_total": prev_total,
+                "current_total": round(total, 1),
+                "delta": round(total - prev_total, 1),
+                "dimension_deltas": dimension_deltas,
+                "improved": total > prev_total,
+            }
+
+        conn.execute(
+            "INSERT INTO prose_scores (story_file, scored_at, scores_json, total_score) VALUES (?, ?, ?, ?)",
+            (story_file, datetime.now(timezone.utc).isoformat(), json.dumps(scores), total)
+        )
+
     result = {
         "status": "success",
         "file": story_file,
@@ -637,24 +733,18 @@ async def handle_score_prose(args: dict) -> dict:
         "total_score": round(total, 1),
         "target": 8.0,
         "pass": total >= 8.0,
-        "improvement_areas": [k for k, v in scores.items() if v < 7.0]
+        "improvement_areas": [k for k, v in scores.items() if v < 7.0],
     }
 
-    # Save to DB
-    conn = init_db()
-    conn.execute(
-        "INSERT INTO prose_scores (story_file, scored_at, scores_json, total_score) VALUES (?, ?, ?, ?)",
-        (story_file, datetime.now(timezone.utc).isoformat(), json.dumps(scores), total)
-    )
-    conn.commit()
-    conn.close()
+    if trend:
+        result["trend"] = trend
 
     return result
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Handler: export_format
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+# Handler: export_format — scene-aware
+# ═════════════════════════════════════════════════════════════════════════════
 async def handle_export_format(args: dict) -> dict:
     story_file = args["story_file"]
     output_format = args["output_format"]
@@ -672,17 +762,21 @@ async def handle_export_format(args: dict) -> dict:
         ext_map = {"screenplay": ".fountain", "branching_narrative": ".json", "audio_script": ".md", "storyboard": ".md", "social_threads": ".md"}
         output_file = base + "_export" + ext_map.get(output_format, ".md")
 
+    # Parse scenes with richer metadata (reusable structure)
     scenes = []
-    current_scene = {"heading": "", "content": [], "characters": []}
+    current_scene = {"heading": "", "content": [], "characters": [], "line_count": 0, "word_count": 0}
     for line in lines:
         if line.strip().startswith("##") or line.strip().startswith("# "):
             if current_scene["content"]:
                 scenes.append(current_scene)
-            current_scene = {"heading": line.strip().lstrip("#").strip(), "content": [], "characters": []}
+            current_scene = {"heading": line.strip().lstrip("#").strip(), "content": [], "characters": [], "line_count": 0, "word_count": 0}
         elif line.strip():
             current_scene["content"].append(line.strip())
+            current_scene["line_count"] += 1
+            current_scene["word_count"] += len(line.split())
             for name_match in re.finditer(r'\b([A-Z][a-z]{2,})\b', line):
-                current_scene["characters"].append(name_match.group(1))
+                if name_match.group(1) not in COMMON_NAME_EXCLUDES:
+                    current_scene["characters"].append(name_match.group(1))
     if current_scene["content"]:
         scenes.append(current_scene)
 
@@ -705,15 +799,13 @@ async def handle_export_format(args: dict) -> dict:
                     export += f"            {line}\n"
 
     elif output_format == "branching_narrative":
-        branching = {
-            "title": os.path.basename(story_file),
-            "nodes": []
-        }
+        branching = {"title": os.path.basename(story_file), "nodes": []}
         for i, scene in enumerate(scenes):
             node = {
                 "id": f"node_{i+1}",
                 "scene": scene["heading"],
                 "content": " ".join(scene["content"]),
+                "word_count": scene["word_count"],
                 "choices": []
             }
             if i < len(scenes) - 1:
@@ -745,8 +837,9 @@ async def handle_export_format(args: dict) -> dict:
             for line in scene["content"][:5]:
                 export += f"- {line}\n"
             export += f"\n**Camera:** {'Close-up' if any('said' in l.lower() or 'bola' in l.lower() for l in scene['content']) else 'Wide'}\n"
-            has_dialogue = any(l.strip().startswith("\"") or l.strip().startswith("'") for l in scene['content'])
-            export += f"**Audio:** {'Dialogue-heavy' if has_dialogue else 'NARRATION + ambient'}\n\n"
+            has_dialogue = any(l.strip().startswith('"') or l.strip().startswith("'") for l in scene['content'])
+            export += f"**Audio:** {'Dialogue-heavy' if has_dialogue else 'NARRATION + ambient'}\n"
+            export += f"**Duration estimate:** {max(scene['word_count'] // 150, 1)} min\n\n"
             export += "---\n\n"
 
     elif output_format == "social_threads":
@@ -773,18 +866,20 @@ async def handle_export_format(args: dict) -> dict:
         "output_file": output_file,
         "source_file": story_file,
         "scenes_detected": len(scenes),
+        "total_words": sum(s["word_count"] for s in scenes),
         "file_size": len(export)
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Handler: grammar_check_v2
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+# Handler: grammar_check_v2 — bible-aware
+# ═════════════════════════════════════════════════════════════════════════════
 async def handle_grammar_check_v2(args: dict) -> dict:
     story_file = args["story_file"]
     narrator_gender = args.get("narrator_gender", "auto")
     check_positions = args.get("check_positions", True)
     check_timeline = args.get("check_timeline", True)
+    series_id = args.get("series_id")
 
     if not os.path.exists(story_file):
         return {"error": f"File not found: {story_file}"}
@@ -793,50 +888,34 @@ async def handle_grammar_check_v2(args: dict) -> dict:
         content = f.read()
         lines = content.split("\n")
 
-    errors = []
-    warnings = []
+    # Auto-detect series for bible-aware checking
+    if not series_id:
+        series_id = auto_detect_series(story_file)
+    bible = load_bible(series_id) if series_id else None
+    bible_names = get_bible_character_names(bible) if bible else {}
 
     # Auto-detect narrator gender
     if narrator_gender == "auto":
         female_markers = content.lower().count("maine") + content.lower().count("meri ") + content.lower().count("main ")
         narrator_gender = "female" if female_markers > 2 else "male"
 
-    # Grammar rules (same as v2 script but with more context)
-    grammar_rules = [
-        (r'\bmaine bola\b', 'maine boli', 'female past verb'),
-        (r'\bmaine pucha\b', 'maine puchi', 'female past verb'),
-        (r'\bmaine dekha\b', 'maine dekhi', 'female past verb'),
-        (r'\bmaine kiya\b', 'maine ki', 'female past verb'),
-        (r'\bmain gaya\b', 'main gayi', 'female past verb'),
-        (r'\bmain aaya\b', 'main aayi', 'female past verb'),
-        (r'\brehta hoon\b', 'rehti hoon', 'female present verb'),
-        (r'\bdekhta hoon\b', 'dekhti hoon', 'female present verb'),
-        (r'\bkarta hoon\b', 'karti hoon', 'female present verb'),
-        (r'\bbolta hoon\b', 'bolti hoon', 'female present verb'),
-        (r'\bsochta hoon\b', 'sochti hoon', 'female present verb'),
-        (r'\bsochta tha\b', 'sochti thi', 'female past continuous'),
-        (r'\bchahta tha\b', 'chahti thi', 'female past continuous'),
-    ]
+    errors = []
+    warnings = []
 
-    adj_rules = [
-        (r'\bbada chut\b', 'badi chut', 'adj-noun gender'),
-        (r'\bbhara chut\b', 'bhari chut', 'adj-noun gender'),
-        (r'\bgandh hai\b', 'gandi hai', 'adj-noun gender'),
-        (r'\bgand ladki\b', 'gandi ladki', 'adj-noun gender'),
-        (r'\bbada gand\b', 'badi gand', 'adj-noun gender'),
-        (r'\bbhara gand\b', 'bhari gand', 'adj-noun gender'),
-    ]
+    # Build male name list from bible (fallback to hardcoded if no bible)
+    male_names = [n for n, g in bible_names.items() if g == "male"]
+    if not male_names:
+        male_names = ['Rohan', 'Rohit', 'Papa', 'Bhai', 'Beta', 'Amit', 'Vikram', 'Raj', 'Arjun', 'Karan']
 
-    fake_words = ['thai', '刺激', 'dekhtoon']
-
+    # Grammar checks using shared rules
     if narrator_gender == "female":
         for i, line in enumerate(lines, 1):
             stripped = line.strip()
             if not stripped or stripped.startswith('#') or stripped.startswith('---'):
                 continue
-            for pattern, fix, category in grammar_rules:
+            for pattern, fix, category in GRAMMAR_VERB_RULES:
                 if re.search(pattern, stripped, re.IGNORECASE):
-                    if stripped.startswith('"') and any(n in stripped for n in ['Rohan', 'Rohit', 'Papa', 'Bhai', 'Beta', 'Amit', 'Vikram', 'Raj', 'Arjun', 'Karan']):
+                    if stripped.startswith('"') and any(n in stripped for n in male_names):
                         continue
                     errors.append(f"Line {i} [{category}]: {pattern} → {fix} | {stripped[:70]}")
 
@@ -844,42 +923,42 @@ async def handle_grammar_check_v2(args: dict) -> dict:
         stripped = line.strip()
         if not stripped:
             continue
-        for pattern, fix, category in adj_rules:
+        for pattern, fix, category in GRAMMAR_ADJ_RULES:
             if re.search(pattern, stripped, re.IGNORECASE):
                 errors.append(f"Line {i} [{category}]: {pattern} → {fix} | {stripped[:70]}")
-        for fw in fake_words:
+        for fw in GRAMMAR_FAKE_WORDS:
             if fw in stripped:
                 errors.append(f"Line {i} [FAKE WORD]: '{fw}' | {stripped[:70]}")
 
     # Position consistency
     position_changes = []
     if check_positions:
-        position_markers = {
-            'doggy': ['doggy', 'peeche se', 'peeth ke peeche'],
-            'upar': ['upar baith', 'woman on top', 'upar chadh'],
-            'oral': ['muh mein', 'blowjob', 'chusna'],
-            'gaand': ['gaand mein', 'anal'],
-        }
         current_pos = None
         for i, line in enumerate(lines, 1):
             ll = line.lower()
-            for pos, markers in position_markers.items():
+            for pos, markers in POSITION_MARKERS.items():
                 if any(m in ll for m in markers):
                     if current_pos and current_pos != pos:
                         position_changes.append(f"Line {i}: {current_pos} → {pos}")
                     current_pos = pos
 
-    # Name consistency
+    # Name consistency — cross-reference with bible
     name_pattern = re.compile(r'\b([A-Z][a-z]{2,})\b')
-    common_exclude = {'The', 'She', 'His', 'Her', 'This', 'That', 'What', 'When', 'Then', 'Than', 'There', 'Their', 'And', 'But', 'Not', 'All', 'For', 'Was', 'Has', 'Had', 'With'}
     names_found = {}
     for i, line in enumerate(lines, 1):
         for match in name_pattern.finditer(line):
             name = match.group(1)
-            if name not in common_exclude:
+            if name not in COMMON_NAME_EXCLUDES:
                 if name not in names_found:
                     names_found[name] = []
                 names_found[name].append(i)
+
+    # Flag names not in bible
+    unknown_names = []
+    if bible_names:
+        for name in names_found:
+            if name not in bible_names:
+                unknown_names.append(name)
 
     # Timeline consistency
     timeline_issues = []
@@ -896,11 +975,14 @@ async def handle_grammar_check_v2(args: dict) -> dict:
     result = {
         "status": "clean" if not errors else "errors_found",
         "file": story_file,
+        "series_id": series_id,
+        "bible_loaded": bible is not None,
         "narrator_gender": narrator_gender,
         "total_lines": len(lines),
         "errors": errors,
         "warnings": warnings,
         "position_changes": position_changes,
+        "unknown_names": unknown_names,
         "names_used": {k: f"{len(v)} mentions (lines: {v[0]}-{v[-1]})" for k, v in names_found.items()},
         "timeline_issues": timeline_issues,
         "summary": f"{len(errors)} grammar errors, {len(warnings)} warnings, {len(position_changes)} position changes"
@@ -909,15 +991,16 @@ async def handle_grammar_check_v2(args: dict) -> dict:
     return result
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Handler: trope_innovate
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+# Handler: trope_innovate — DB-deduped
+# ═════════════════════════════════════════════════════════════════════════════
 async def handle_trope_innovate(args: dict) -> dict:
     seed_tropes = args["seed_tropes"]
     genre = args.get("genre", "erotica")
     num = args.get("num_innovations", 5)
 
-    # Known trope library for fusion
+    import random
+
     all_tropes = [
         "forbidden_love", "power_exchange", "discovery", "betrayal", "seduction",
         "blackmail", "revenge", "first_time", "forbidden_knowledge", "public_risk",
@@ -927,37 +1010,52 @@ async def handle_trope_innovate(args: dict) -> dict:
         "caste_tension", "joint_family", "outsider_foil", "alpha_discovery",
     ]
 
+    # Load previously generated innovations from DB to avoid duplicates
+    with db() as conn:
+        prev = conn.execute("SELECT innovation_json FROM trope_innovations ORDER BY created_at DESC LIMIT 20").fetchall()
+
+    existing_fusions = set()
+    for row in prev:
+        try:
+            for inv in json.loads(row[0]):
+                existing_fusions.add(inv.get("fusion", ""))
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     innovations = []
-    for _ in range(num):
-        # Pick 2 random tropes not in seeds
-        available = [t for t in all_tropes if t not in seed_tropes]
+    available = [t for t in all_tropes if t not in seed_tropes]
+
+    for _ in range(num * 3):  # Try more times to find non-duplicate combos
+        if len(innovations) >= num:
+            break
         if len(available) < 2:
             break
-        import random
         combo = random.sample(seed_tropes, min(2, len(seed_tropes))) + random.sample(available, 2)
         random.shuffle(combo)
+        fusion_key = f"{combo[0]} × {combo[1]}"
+        if fusion_key in existing_fusions:
+            continue
+        existing_fusions.add(fusion_key)
         innovation = {
-            "fusion": f"{combo[0]} × {combo[1]} × {combo[2] if len(combo) > 2 else combo[0]}",
+            "fusion": fusion_key,
             "inversion": f"What if {combo[0]} is reversed — the one who should resist is the one who initiates?",
             "escalation": f"Start with {combo[1]}, escalate to {combo[0]} by midpoint, climax with {combo[2] if len(combo) > 2 else combo[1]}",
             "unique_angle": f"Never done: {combo[0]} + {combo[1]} in {genre} from the perspective of the one who holds power but doesn't know it"
         }
         innovations.append(innovation)
 
-    conn = init_db()
-    conn.execute(
-        "INSERT INTO trope_innovations (source_tropes, innovation_json, created_at) VALUES (?, ?, ?)",
-        (json.dumps(seed_tropes), json.dumps(innovations), datetime.now(timezone.utc).isoformat())
-    )
-    conn.commit()
-    conn.close()
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO trope_innovations (source_tropes, innovation_json, created_at) VALUES (?, ?, ?)",
+            (json.dumps(seed_tropes), json.dumps(innovations), datetime.now(timezone.utc).isoformat())
+        )
 
-    return {"status": "success", "seed_tropes": seed_tropes, "innovations": innovations}
+    return {"status": "success", "seed_tropes": seed_tropes, "innovations": innovations, "deduped": True}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
 # Handler: character_voice_check
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
 async def handle_character_voice_check(args: dict) -> dict:
     story_file = args["story_file"]
     character_names = args.get("character_names", [])
@@ -971,11 +1069,10 @@ async def handle_character_voice_check(args: dict) -> dict:
 
     if not character_names:
         name_pattern = re.compile(r'\b([A-Z][a-z]{2,})\b')
-        exclude = {'The', 'She', 'His', 'Her', 'This', 'That', 'What', 'When', 'Then', 'Than', 'There', 'Their', 'And', 'But', 'Not', 'All', 'For', 'Was', 'Has', 'Had', 'With'}
         names = set()
         for line in lines:
             for m in name_pattern.finditer(line):
-                if m.group(1) not in exclude:
+                if m.group(1) not in COMMON_NAME_EXCLUDES:
                     names.add(m.group(1))
         character_names = sorted(names)
 
@@ -1000,9 +1097,9 @@ async def handle_character_voice_check(args: dict) -> dict:
     return {"status": "success", "file": story_file, "characters": results}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
 # Handler: scene_pacing_analysis
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
 async def handle_scene_pacing_analysis(args: dict) -> dict:
     story_file = args["story_file"]
 
@@ -1013,7 +1110,6 @@ async def handle_scene_pacing_analysis(args: dict) -> dict:
         content = f.read()
         lines = content.split("\n")
 
-    # Split into scenes by headings
     scenes = []
     current = {"heading": "Opening", "lines": [], "word_count": 0}
     for line in lines:
@@ -1066,9 +1162,9 @@ async def handle_scene_pacing_analysis(args: dict) -> dict:
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
 # Handler: brainstorm_narrative
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
 async def handle_brainstorm_narrative(args: dict) -> dict:
     genre = args["genre"]
     seed = args.get("seed_idea", "")

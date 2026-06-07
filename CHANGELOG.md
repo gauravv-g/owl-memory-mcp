@@ -4,6 +4,41 @@ All notable changes to OWL Memory are documented here.
 
 ---
 
+## [4.0.0] — 2026-07-07
+
+### Creative Studio MCP — v4 Exponential Elevation
+
+**Architecture:**
+- **Shared DB context manager** (`db()`) — Replaces 5× duplicated open/commit/close blocks with single `@contextmanager` pattern. Eliminates connection leaks.
+- **Shared constants** — `GRAMMAR_VERB_RULES`, `GRAMMAR_ADJ_RULES`, `GRAMMAR_FAKE_WORDS`, `POSITION_MARKERS`, `EXPLICIT_TERMS`, `AI_WORDS`, `FILTER_WORDS`, `SENSORY_WORDS`, `EMOTIONAL_WORDS`, `COMMON_NAME_EXCLUDES` — Single source of truth, no duplication.
+- **Bible-aware pipeline** — `load_bible()`, `auto_detect_series()`, `get_bible_character_names()` helper functions shared across tools.
+
+**Tool Changes:**
+- `check_continuity` — Now bible-aware: loads series bible, validates character names against it, flags unknown names, uses bible character genders instead of hardcoded male name list.
+- `grammar_check_v2` — Now bible-aware: reads character genders from series bible for male dialogue filtering. Auto-detects series from file path.
+- `score_prose` — Trend tracking: compares current scores to previous scores for same file, reports dimension-level deltas and improvement direction.
+- `trope_innovate` — DB-deduped: loads previously generated innovations from DB, avoids re-generating same fusion combinations.
+- `export_format` — Scene metadata enriched: reports per-scene word counts, total words, duration estimates in storyboard mode.
+- `brainstorm_narrative` — Unchanged (LLM generates content; tool provides structure).
+
+**Removed:**
+- Phantom `series_continuity_db` tool from docstring (never implemented).
+- `sys.exit(1)` import guard (graceful degradation).
+- `indent=2` from tool response JSON (not human-facing).
+- `import random` from module level (moved inside `trope_innovate` handler only).
+- Decorative comment separators between sections.
+- Verbose module docstring changelog (belongs in CHANGELOG.md).
+
+**Metrics:**
+- v3: 1105 lines → v4: 1202 lines (+97)
+- Net structural improvement: -111 lines of duplication, +208 lines of shared infrastructure
+- 10 tools, 5 DB tables (unchanged schema)
+- All grammar rules: 1 shared definition (was 2 duplicated copies)
+- DB connections: 1 context manager (was 5× duplicated open/close blocks)
+
+
+---
+
 ## [2.0.0] — 2026-06-07
 
 ### Added — owl-qa (Python, 31 tools)
