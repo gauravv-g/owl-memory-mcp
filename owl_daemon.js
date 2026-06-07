@@ -427,6 +427,19 @@ function handleFileChange(filePath) {
   // D4: Run Reflexive Interrupt checks
   checkReflexiveInterrupts(relPath);
 
+  // QA Regression Auto-trigger for .js or .py files
+  if (ext === ".js" || ext === ".py") {
+    try {
+      const activeMonitors = db.prepare("SELECT COUNT(*) as cnt FROM qa_sentinel_monitors WHERE active = 1").get();
+      if (activeMonitors && activeMonitors.cnt > 0) {
+        db.prepare("INSERT INTO daemon_signals (signal_type, payload, created_at, consumed) VALUES ('source_changed', ?, ?, 0)")
+          .run(JSON.stringify({ file: relPath }), new Date().toISOString());
+      }
+    } catch(e) {
+      console.error("[OWL DAEMON] Failed to queue source_changed signal:", e.message);
+    }
+  }
+
   // Reset idle timer
   resetIdleTimer();
 }
@@ -742,6 +755,91 @@ function writePredictiveCache(relPath, projectId) {
   }
 }
 
+// Hermes v7.0: handleGitCommit helper
+function handleGitCommit() {
+  try {
+    const stdout = execSync("git diff HEAD~1 --name-only", { encoding: "utf8", cwd: WORKSPACE_DIR });
+    const changedFiles = stdout.split("\n").map(f => f.trim()).filter(Boolean);
+    if (changedFiles.length > 0) {
+      console.log(`[OWL DAEMON] Git commit detected with changes: ${changedFiles.join(", ")}`);
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO daemon_signals (signal_type, payload, consumed, created_at)
+        VALUES ('git_commit_detected', ?, 0, ?)
+      `).run(JSON.stringify({ changed_files: changedFiles }), now);
+    }
+  } catch (e) {
+    console.error(`[OWL DAEMON] Git diff extraction failed: ${e.message}`);
+  }
+}
+
+// Hermes v7.0: runQAScreenshotManager helper
+function runQAScreenshotManager() {
+  const screenshotDir = path.join(path.dirname(DB_PATH), "qa-screenshots");
+  if (!fs.existsSync(screenshotDir)) return;
+
+  console.log(`[OWL DAEMON] Running QA Screenshot Manager on ${screenshotDir}`);
+  const now = Date.now();
+  const fourteenDays = 14 * 24 * 60 * 60 * 1000;
+  const ninetyDays = 90 * 24 * 60 * 60 * 1000;
+
+  try {
+    const failingShots = new Set();
+    const rows = db.prepare(`
+      SELECT screenshot_before, screenshot_after FROM qa_test_steps WHERE passed = 0
+    `).all();
+    for (const r of rows) {
+      if (r.screenshot_before) failingShots.add(path.resolve(r.screenshot_before));
+      if (r.screenshot_after) failingShots.add(path.resolve(r.screenshot_after));
+    }
+    const bugRows = db.prepare("SELECT screenshot_paths_json FROM qa_bugs").all();
+    for (const br of bugRows) {
+      try {
+        const paths = JSON.parse(br.screenshot_paths_json || "[]");
+        for (const p of paths) {
+          failingShots.add(path.resolve(p));
+        }
+      } catch(e) {}
+    }
+
+    let totalSize = 0;
+    const files = fs.readdirSync(screenshotDir);
+    for (const file of files) {
+      const filePath = path.join(screenshotDir, file);
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile()) continue;
+
+      totalSize += stat.size;
+
+      if (file.startsWith("baseline_")) continue;
+
+      const age = now - stat.mtimeMs;
+      const isFailing = failingShots.has(path.resolve(filePath));
+
+      const shouldDelete = (
+        (isFailing && age > ninetyDays) ||
+        (!isFailing && age > fourteenDays)
+      );
+
+      if (shouldDelete) {
+        fs.unlinkSync(filePath);
+        totalSize -= stat.size;
+        console.log(`[OWL DAEMON] Purged old screenshot: ${file}`);
+      }
+    }
+
+    const sizeGB = totalSize / (1024 * 1024 * 1024);
+    if (sizeGB > 5.0) {
+      triggerWindowsNotification(
+        "QA Storage Warning",
+        `QA Screenshot directory size is ${sizeGB.toFixed(2)}GB, exceeding 5GB limit.`
+      );
+    }
+  } catch (e) {
+    console.error("[OWL DAEMON] QA Screenshot Manager failed:", e.message);
+  }
+}
+
 // ─── File Watcher loop ───────────────────────────────────────────────────────
 function watchWorkspace() {
   fs.watch(WORKSPACE_DIR, { recursive: true }, (eventType, filename) => {
@@ -750,6 +848,12 @@ function watchWorkspace() {
     // Normalize path separators
     const fullPath = path.join(WORKSPACE_DIR, filename);
     const relPath = filename.replace(/\\/g, "/");
+
+    // HERMES v7.0: Catch Git commits
+    if (relPath.endsWith(".git/COMMIT_EDITMSG") || relPath.endsWith("COMMIT_EDITMSG")) {
+      handleGitCommit();
+      return;
+    }
 
     // Filter directories
     if (
@@ -1029,4 +1133,6 @@ runMonitorChecking();
 setInterval(runMonitorChecking, 2 * 60 * 1000); // Check every 2 minutes
 checkCrossServerEvents();
 setInterval(checkCrossServerEvents, 15 * 1000); // Check every 15 seconds
+runQAScreenshotManager();
+setInterval(runQAScreenshotManager, 60 * 60 * 1000); // Check/purge screenshots every hour
 triggerWindowsNotification("OWL Substrate", "Autonomic background daemon watcher is active.");

@@ -4,6 +4,30 @@ All notable changes to OWL Memory are documented here.
 
 ---
 
+## [2.0.0] — 2026-06-07
+
+### Added — owl-qa (Python, 31 tools)
+- **12 Quality Assurance Pillars**: Test Genome, Causal AI, Bug Oracle, Sensory Testing, Device Cloud, Selector Healing, Bug Economics, Living Graph, Mirror Test, Temporal Velocity, App Connectors, and Neural Mesh.
+- **Core QA Tools**: `qa_inspect_web`, `qa_android_inspect`, `qa_api_inspect`, `qa_interact_web`, `qa_android_interact`, `qa_test_flow`, `qa_regression_check`, `qa_sherlock`, `qa_accessibility_audit`, `qa_performance_probe`, `qa_chaos_probe`, `qa_harmonic_audit`, `qa_sentinel_register`, `qa_explain_bug`, `qa_predict_bugs`, `qa_sensory_audit`, `qa_economics_report`, `qa_knowledge_graph`, `qa_temporal_analysis`, `qa_protocol_test`, `qa_compare_apps`, `qa_load_test`, `qa_user_story_generate`, `qa_competitive_audit`.
+- **Hermes v8.0 Pillar Tools**: `qa_genome_evolve`, `qa_genome_register_flow`, `qa_causal_chain`, `qa_device_cloud_scan`, `qa_device_parallel_test`, `qa_selftest`, `qa_orchestrator_status`.
+
+### Added — owl_sentinel (Python Daemon)
+- Background monitor loop supporting automated web and Android test execution schedules.
+- System notifications on failure with local tray balloons.
+- Automatic bug logging and event cascade triggering upon monitor failure.
+- Live diagnostic status server hosted on port 7700.
+
+### Modified — owl_daemon (JavaScript Daemon)
+- Auto-triggers QA regression runs when python or javascript files change.
+- Automated screenshot directory manager to clean old files.
+- Catches git commits to queue predictive bug checks.
+
+### Modified — owl_memory (JavaScript Server)
+- Schema upgrades: Added 12 new QA tables to support predictions, healing logs, device registries, and health score logs.
+- Added `runQADreamCycle` helper for test fitness and bug pattern crystallization.
+
+---
+
 ## [1.0.0] — 2026-06-06
 
 ### The first public release.

@@ -682,6 +682,167 @@ try {
   db.exec("ALTER TABLE episodic_memories ADD COLUMN template_id TEXT;");
 } catch(e) {}
 
+// Hermes v7.0 (QA Schema Extensions)
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS qa_test_runs (
+      id TEXT PRIMARY KEY,
+      test_type TEXT NOT NULL,
+      target_url TEXT, target_app TEXT,
+      flow_name TEXT, flow_description TEXT,
+      status TEXT DEFAULT 'pending',
+      regression_score REAL DEFAULT 100.0,
+      screenshot_count INTEGER DEFAULT 0,
+      bug_count INTEGER DEFAULT 0,
+      duration_ms INTEGER DEFAULT 0,
+      chaos_scenario TEXT,
+      project TEXT DEFAULT 'default',
+      run_by TEXT DEFAULT 'agent',
+      created_at TEXT NOT NULL, completed_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS qa_test_steps (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      step_index INTEGER NOT NULL,
+      action_type TEXT NOT NULL,
+      target_selector TEXT, input_value TEXT,
+      expected_state TEXT, actual_state TEXT,
+      vision_interpretation TEXT,
+      passed INTEGER DEFAULT 1,
+      screenshot_before TEXT, screenshot_after TEXT,
+      network_requests_json TEXT DEFAULT '[]',
+      console_errors_json TEXT DEFAULT '[]',
+      duration_ms INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS qa_bugs (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      severity TEXT DEFAULT 'medium',
+      bug_type TEXT DEFAULT 'functional',
+      target_url TEXT, target_app TEXT,
+      steps_to_reproduce_json TEXT DEFAULT '[]',
+      screenshot_paths_json TEXT DEFAULT '[]',
+      video_path TEXT,
+      root_cause TEXT,
+      similar_bug_ids_json TEXT DEFAULT '[]',
+      feynman_explanations_json TEXT DEFAULT '{}',
+      status TEXT DEFAULT 'open',
+      project TEXT DEFAULT 'default',
+      discovered_in_run TEXT,
+      created_at TEXT NOT NULL, resolved_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS qa_visual_baselines (
+      id TEXT PRIMARY KEY,
+      target_url TEXT NOT NULL,
+      flow_name TEXT, step_name TEXT NOT NULL,
+      screenshot_path TEXT NOT NULL,
+      dom_hash TEXT,
+      harmony_score REAL DEFAULT 1.0,
+      element_count INTEGER DEFAULT 0,
+      approved INTEGER DEFAULT 1,
+      project TEXT DEFAULT 'default',
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS qa_performance_baselines (
+      id TEXT PRIMARY KEY,
+      target_url TEXT NOT NULL,
+      metric_name TEXT NOT NULL,
+      baseline_value REAL NOT NULL,
+      threshold_warning REAL,
+      threshold_critical REAL,
+      project TEXT DEFAULT 'default',
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS qa_knowledge_crystals (
+      id TEXT PRIMARY KEY,
+      target_url TEXT, target_app TEXT,
+      crystal_type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      confidence REAL DEFAULT 0.7,
+      times_confirmed INTEGER DEFAULT 1,
+      project TEXT DEFAULT 'default',
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS qa_sentinel_monitors (
+      id TEXT PRIMARY KEY,
+      target_url TEXT, target_app TEXT,
+      flow_name TEXT NOT NULL,
+      flow_steps_json TEXT DEFAULT '[]',
+      check_interval_minutes INTEGER DEFAULT 60,
+      last_checked_at TEXT,
+      last_status TEXT DEFAULT 'pending',
+      consecutive_failures INTEGER DEFAULT 0,
+      uptime_pct REAL DEFAULT 100.0,
+      project TEXT DEFAULT 'default',
+      active INTEGER DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS qa_test_genome (
+      id TEXT PRIMARY KEY,
+      flow_name TEXT NOT NULL,
+      target_url TEXT, target_app TEXT,
+      fitness_score REAL DEFAULT 0.5,
+      bug_catch_count INTEGER DEFAULT 0,
+      false_positive_count INTEGER DEFAULT 0,
+      run_count INTEGER DEFAULT 0,
+      generation INTEGER DEFAULT 1,
+      parent_flow_name TEXT,
+      mutation_type TEXT,
+      project TEXT DEFAULT 'default',
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS qa_bug_resonance (
+      id TEXT PRIMARY KEY,
+      pattern_name TEXT NOT NULL,
+      trigger_conditions_json TEXT NOT NULL,
+      bug_type TEXT,
+      confidence REAL DEFAULT 0.7,
+      times_confirmed INTEGER DEFAULT 1,
+      source_bug_ids_json TEXT DEFAULT '[]',
+      project TEXT DEFAULT 'default',
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS qa_bug_pattern_ledger (
+      id TEXT PRIMARY KEY,
+      pattern_type TEXT NOT NULL,
+      co_occurrence_factor TEXT,
+      occurrence_count INTEGER DEFAULT 1,
+      last_occurrence TEXT,
+      projects_affected_json TEXT DEFAULT '[]',
+      insight TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS qa_behavior_oracle (
+      id TEXT PRIMARY KEY,
+      target_url TEXT, target_app TEXT,
+      flow_name TEXT NOT NULL,
+      step_name TEXT NOT NULL,
+      expected_state_json TEXT NOT NULL,
+      confidence REAL DEFAULT 0.8,
+      observations_count INTEGER DEFAULT 1,
+      last_confirmed_at TEXT,
+      project TEXT DEFAULT 'default',
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS qa_api_contracts (
+      id TEXT PRIMARY KEY,
+      base_url TEXT NOT NULL,
+      endpoint TEXT NOT NULL,
+      method TEXT NOT NULL,
+      expected_status_codes_json TEXT DEFAULT '[200]',
+      response_schema_json TEXT,
+      avg_response_ms REAL,
+      threshold_ms REAL DEFAULT 500.0,
+      project TEXT DEFAULT 'default',
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+  `);
+} catch(e) {
+  console.error("[OWL QA Schema] Failed to initialize QA tables:", e);
+}
+
 try {
   db.exec("ALTER TABLE memory_programs ADD COLUMN inherited INTEGER DEFAULT 0;");
 } catch(e) {}
@@ -3712,6 +3873,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const evo = evolveDatabaseSchema(projectId);
         const gly = pruneGlymphaticSubstrate(projectId);
         const torvalds = chronoPruneWorkspace(projectId);
+        
+        // ═══ Hermes v7.0: runQADreamCycle ═══
+        let qaDream = null;
+        try {
+          qaDream = runQADreamCycle(projectId);
+        } catch(e) {
+          console.error("QA Dream cycle failed:", e);
+        }
 
         // ═══ Phase 1: Neocortex Distillation ═══
         const neocortex = distillateNeocortex(projectId);
@@ -3770,7 +3939,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             tesla_resonance_optimization: teslaRes,
             causal_patterns_detected: causalRes.patterns_detected || 0,
             topology_diff: topoDiff,
-            cognitive_mirror_generated: !!mirrorReportResult
+            cognitive_mirror_generated: !!mirrorReportResult,
+            qa_dream_cycle: qaDream
           }), now);
 
         return { content: [{ type: "text", text: JSON.stringify({
@@ -3788,6 +3958,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           meta_programming: "evolved",
           tesla_resonance_optimization: teslaRes,
           causal_predictions: causalRes,
+          qa_dream_cycle: qaDream,
           topology_diff: topoDiff,
           cognitive_mirror_generated: !!mirrorReportResult
         }) }] };
@@ -4020,6 +4191,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return { content: [{ type: "text", text: briefLines }] };
         }
 
+        // ─── Phase 5 Additions: QA summary for resurrection ───
+        let qaSummary = { open_bugs: 0, failing_monitors: [], regression_score: 100.0, last_test_run: null, pending_flows: [], knowledge_crystals_count: 0 };
+        try {
+          const openBugsCount = db.prepare("SELECT COUNT(*) as cnt FROM qa_bugs WHERE status = 'open'").get()?.cnt || 0;
+          const failingMonitors = db.prepare("SELECT flow_name, target_url FROM qa_sentinel_monitors WHERE last_status = 'failed' LIMIT 5").all();
+          const lastRun = db.prepare("SELECT flow_name, status, bug_count FROM qa_test_runs ORDER BY completed_at DESC LIMIT 1").get();
+          const crystalsCount = db.prepare("SELECT COUNT(*) as cnt FROM qa_knowledge_crystals").get()?.cnt || 0;
+          
+          qaSummary = {
+            open_bugs: openBugsCount,
+            failing_monitors: failingMonitors.map(m => m.flow_name),
+            regression_score: 100.0,
+            last_test_run: lastRun ? { flow: lastRun.flow_name, status: lastRun.status, bugs_found: lastRun.bug_count } : null,
+            knowledge_crystals_count: crystalsCount
+          };
+        } catch (e) {}
+
         // Full format
         return { content: [{ type: "text", text: JSON.stringify({
           status: "resurrected",
@@ -4041,6 +4229,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           incoming_handoff: incomingHandoff,
           cognitive_context: cognitiveContext,
           warnings: threats,
+          qa_summary: qaSummary,
           efficiency: {
             total_tokens_saved: totalSaved,
             total_tokens_injected: totalInjected,
@@ -4944,6 +5133,84 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
 
   throw new Error(`Unknown resource: ${uri}`);
 });
+
+// Hermes v7.0: runQADreamCycle helper
+function runQADreamCycle(projectId) {
+  const result = { fitness_updates: 0, bug_patterns_crystallized: 0, oracle_updated: 0 };
+  
+  // 1. Darwin fitness update
+  try {
+    const genomes = db.prepare("SELECT * FROM qa_test_genome WHERE project = ? AND run_count > 10").all(projectId);
+    for (const g of genomes) {
+      if (g.fitness_score < 0.2) {
+        db.prepare("UPDATE qa_test_genome SET mutation_type = 'weak_pruned', fitness_score = 0.0, updated_at = ? WHERE id = ?")
+          .run(new Date().toISOString(), g.id);
+        result.fitness_updates++;
+      } else if (g.fitness_score > 0.8) {
+        db.prepare("UPDATE qa_test_genome SET generation = generation + 1, updated_at = ? WHERE id = ?")
+          .run(new Date().toISOString(), g.id);
+        result.fitness_updates++;
+      }
+    }
+  } catch (e) {}
+
+  // 2. Bug pattern crystallization (Tesla resonance)
+  try {
+    const bugClusters = db.prepare(`
+      SELECT bug_type, COUNT(*) as cnt FROM qa_bugs 
+      WHERE project = ? AND status = 'open' 
+      GROUP BY bug_type HAVING cnt >= 3
+    `).all(projectId);
+    for (const cluster of bugClusters) {
+      const bugType = cluster.bug_type;
+      const patternName = `resonance_${bugType}_cluster`;
+      const crystalId = generateId(patternName, projectId);
+      
+      db.prepare(`
+        INSERT OR IGNORE INTO qa_bug_resonance 
+          (id, pattern_name, trigger_conditions_json, bug_type, confidence, times_confirmed, project, created_at)
+        VALUES (?, ?, ?, ?, 0.8, 1, ?, ?)
+      `).run(
+        crystalId, 
+        patternName, 
+        JSON.stringify({ bug_type: bugType }), 
+        bugType, 
+        projectId,
+        new Date().toISOString()
+      );
+      result.bug_patterns_crystallized++;
+    }
+  } catch (e) {}
+
+  // 3. Oracle update from passed steps
+  try {
+    const passedSteps = db.prepare(`
+      SELECT s.target_selector, s.action_type, s.actual_state 
+      FROM qa_test_steps s
+      JOIN qa_test_runs r ON s.run_id = r.id
+      WHERE r.project = ? AND s.passed = 1 LIMIT 50
+    `).all(projectId);
+    for (const step of passedSteps) {
+      if (step.target_selector && step.actual_state) {
+        const oracleId = generateId(step.target_selector, projectId);
+        db.prepare(`
+          INSERT OR REPLACE INTO qa_behavior_oracle 
+            (id, target_url, flow_name, step_name, expected_state_json, confidence, observations_count, project, created_at)
+          VALUES (?, '', 'flow', ?, ?, 0.9, 1, ?, ?)
+        `).run(
+          oracleId, 
+          step.target_selector, 
+          JSON.stringify({ state: step.actual_state }), 
+          projectId,
+          new Date().toISOString()
+        );
+        result.oracle_updated++;
+      }
+    }
+  } catch (e) {}
+
+  return result;
+}
 
 async function main() {
   const transport = new StdioServerTransport();

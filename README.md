@@ -7,17 +7,23 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Tools-55%2B-blueviolet?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Memory_Types-6-blue?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Tools-105-blueviolet?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Hermes_Pillars-12-blue?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Token_Savings-95.4%25-green?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Cloud_Required-Zero-red?style=for-the-badge" />
   <img src="https://img.shields.io/badge/License-MIT-orange?style=for-the-badge" />
 </p>
 
 <p align="center">
-  <strong>The only local AI memory that reasons, warns, detects hallucinations, and thinks.</strong><br/>
+  <strong>The local AI memory and quality substrate that reasons, verifies, and self-heals.</strong><br/>
   Works with <strong>Claude Desktop · Cursor · Windsurf · Antigravity</strong>
 </p>
+
+---
+
+## Plain English: What is OWL?
+
+OWL is a local brain that sits behind your AI coding editor to prevent memory loss, block hallucinations, and automatically verify and repair your app code as you build.
 
 ---
 
@@ -25,9 +31,9 @@
 
 Every session, your AI starts from zero.
 
-It forgets the bug you debugged for 3 hours last Tuesday. It forgets your architectural decisions. It re-reads the same files and charges you for every token. And sometimes — worse — it confidently tells you something that **contradicts what you told it last week**.
+It forgets the bug you debugged for 3 hours last Tuesday. It forgets your architectural decisions. It re-reads the same files and charges you for every token. And sometimes, worse, it confidently tells you something that contradicts what you told it last week.
 
-Tools like Mem0 and Supermemory try to fix the forgetting. They store and retrieve. That's a filing cabinet.
+Tools like Mem0 and Supermemory try to fix the forgetting. They store and retrieve. That is a filing cabinet.
 
 **OWL is a brain.**
 
@@ -45,6 +51,12 @@ Your claim contradicts this. Verify before proceeding.
 
 **No other memory tool does this.** Your AI can now catch itself lying.
 
+### 🧬 The Test Genome Engine (Hermes Pillar 1)
+OWL treats user journeys as code DNA. It runs evolutionary cycles that mutate selectors, change inputs, and vary viewport sizes to find where your application breaks. It prunes weak or flaky tests and promotes high-performance test cases.
+
+### 🔧 Self-Healing Selector Infrastructure (Hermes Pillar 6)
+If your frontend code changes and a test selector breaks, OWL does not fail immediately. It runs a semantic analysis of the page, matches candidate elements using weight scoring, and automatically corrects the broken selector inside SQLite.
+
 ### ⚠️ Cognitive Biorhythm (Pythagoras)
 OWL tracks which hour and day of the week you historically ship bugs. It warns you:
 
@@ -55,30 +67,8 @@ Defer critical deploys.
 
 Friday 3–5pm is hard-coded at 3.2x risk. Because the data says so.
 
-### 💉 Executable Bug Vaccines
-When the same bug type appears twice, OWL auto-generates a sandboxed JavaScript function that detects that exact pattern in all future code. Each vaccine has a tracked precision score. They improve automatically.
-
 ### 🌐 P2P Cognitive Mesh (Berners-Lee)
-OWL runs UDP multicast discovery on your local network. When another OWL user is found on your LAN, bug patterns and vaccines sync automatically — anonymized, private, no file paths exposed.
-
-```
-[OWL MESH] Learned 7 new bug patterns from peer 192.168.1.42
-```
-
-### 🕵️ Cargo Cult Detector (Feynman)
-When you paste code without a stored rationale explaining *why*, OWL flags it:
-
-```
-⚠️ FEYNMAN CARGO CULT WARNING: Snippet in [auth.py] pasted without recorded rationale.
-Store why you are using this pattern.
-```
-
-### ⚖️ Constitutional Violation Checker (Tata)
-Define your project's mandatory coding rules. OWL enforces them on every file you open:
-
-```
-⚖️ CONSTITUTIONAL VIOLATION: Article 2 — 'Async calls must always be wrapped in try-catch blocks.'
-```
+OWL runs UDP multicast discovery on your local network. When another OWL user is found on your LAN, bug patterns sync automatically. This process is completely private, anonymous, and does not expose file paths.
 
 ---
 
@@ -94,184 +84,143 @@ Define your project's mandatory coding rules. OWL enforces them on every file yo
 Net savings: 95.4% reduction. Per session.
 ```
 
-The math: OWL loads only what's relevant — solid (active file), liquid (neighbors), gas (rest). Distant files compress to 1% of their original size.
+The math: OWL loads only what is relevant. It partitions file context into active (solid), neighboring (liquid), and general project directories (gas). Distant files compress to 1% of their original size.
 
 ---
 
-## Three Servers. One Brain.
+## Four Servers. One Neural Mesh.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│              owl_gateway.py  :3710                      │
-│    ┌─────────────┐  ┌──────────────┐  ┌─────────────┐  │
-│    │ owl-memory  │  │ owl-research │  │   owl-web   │  │
-│    │ (Node.js)   │  │  (Python)    │  │  (Python)   │  │
-│    │  55+ tools  │  │   9 tools    │  │  10 tools   │  │
-│    └──────┬──────┘  └──────┬───────┘  └──────┬──────┘  │
-│           └────────────────┴──────────────────┘         │
-│                     SQLite  ~/.owl-memory/               │
-└─────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                      owl_sentinel.py (Daemon)                          │
+│                                │                                       │
+│                    owl_qa_orchestrator.py (Port 7700)                  │
+│                                │                                       │
+│                     owl_gateway.py (Port 3710)                         │
+│       ┌────────────────────────┼────────────────────────┐              │
+│       ▼                        ▼                        ▼              │
+│  owl-memory               owl-research               owl-web           │
+│  (Node.js)                  (Python)                (Python)           │
+│  55+ tools                  9 tools                 10 tools           │
+│                                                                        │
+│                      owl_qa_mcp.py (Stdio/Python)                      │
+│                                │                                       │
+│                                ▼                                       │
+│                 SQLite Database (~/.owl-memory/)                       │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-All three servers share one SQLite database. Research results become memories. Web changes trigger memory alerts. Memory gates research — if OWL already knows the answer at 80%+ confidence, it returns it instantly with zero network calls.
+All servers share one SQLite database. Research results become memories, web monitors trigger quality alerts, and the QA server executes test cascades.
 
 ---
 
-## Complete Feature List
+## The 12 Innovation Pillars of Hermes v8.0
 
-### 🧠 owl-memory — The Neuromorphic Engine (55+ tools)
-
-**Memory Types (6 — competitors have 1-2)**
-| Type | What It Stores |
-|------|---------------|
-| Episodic | Events, bugs, decisions with timestamps |
-| Semantic | Facts, truths, architectural rules |
-| Procedural | Skills, workflows, mastery levels |
-| Somatic | Emotional residue from debugging pain |
-| Transactive | Who knows what (agent directory) |
-| Working | 4-chunk active cognitive stack |
-
-**Retrieval (no competitor matches this stack)**
-- 384-dim vector embeddings (Xenova/all-MiniLM-L6-v2, local, quantized, no API)
-- BERT-NER entity extraction (Xenova/bert-base-NER, local)
-- BM25 keyword + vector hybrid search
-- Cross-encoder reranking of top-20
-- Mood-congruent retrieval (emotional state biases results)
-- Entity-boosted scoring
-- Working memory priority boost
-
-**Neuromorphic Intelligence**
-- **Einstein Gravity**: Ranks memories by call-graph distance + emotional weight + salience
-- **Tesla Resonance**: Spring-mass-damper wave propagation through your call graph
-- **Thiel Contradiction**: Detects when code comments contradict crash logs
-- **Musk Error Harvesting**: Surprise-gated writes — crashes on main branch get max salience
-- **Naval Hotspots**: Flags files with highest bug-to-edit ratio for targeted refactoring
-- **Tata Stewardship**: Package crash rate ledger → trust coefficient → circuit breaker suggestions
-- **Torvalds Pruner**: Identifies dead code nodes via zero-activity ledger
-- **Da Vinci Anatomical Paths**: Circulatory/nervous/skeletal system visualization of call paths
-
-**Safety & Correctness**
-- 🔥 **Hallucination Firewall** — AI claim vs stored ground truth cross-check
-- ⚖️ **Constitutional Checker** — mandatory coding rules enforced per-file
-- 🕵️ **Cargo Cult Detector** — flags copy-pasted code with no rationale memory
-- ⚠️ **Cognitive Biorhythm** — your personal crash window tracker (hour × day)
-- 💉 **Executable Bug Vaccines** — auto-generated sandboxed detection programs
-- 🌐 **P2P Cognitive Mesh** — LAN-based anonymous bug sharing
-
-**Self-Evolution**
-- **Dream Cycle**: Idle-time consolidation, sandbox mutation, duplicate merge, schema abstraction
-- **Self-Optimizing Constants**: Dream cycle mutates its own physics (gravity decay, resonance stiffness)
-- **Memory Reconsolidation**: Memories drift in valence/strength each access (like human memory)
-- **Semantic Distillation Engine**: Auto-generates abstractions from memory clusters
-- **Stigmergy Pheromone Trails**: Action → outcome → path strengthening
-- **Predictive Context Cache**: Pre-computes what you'll need next
-- **Cognitive Fingerprint**: Builds a behavioral model of how YOU work
-- **Feynman Abstraction Ladder**: 5 compression levels (PhD → 10-year-old → Analogy)
-- **Memory Crystals**: Geometric clustering of related memories
-- **Harmonic Analysis**: Bug density + cyclomatic complexity → code harmony score
-- **Cross-Project Knowledge Transfer**: Matches patterns across your different projects
-- **Specific Knowledge Crystals** (Naval): Unique heuristics captured as moat-building knowledge
-- **Git-Native Memory Trees**: Memories tagged to branch + commit SHA
-
-**UX**
-- Session Resurrection: full state saved at end, restored at start
-- Token Ledger: tracks tokens injected vs tokens saved per session
-- D3.js Pythagorean Crystal visualization (interactive, force-directed, live)
-- Narrative Templates: tracks recurring project flow patterns
-- Decision Engine with Pre-Mortem (warns based on your failure history)
+| Pillar | System Module | Core Capability |
+| :--- | :--- | :--- |
+| **1. Test Genome** | `owl_qa_genome.py` | Breeds elite test flows, mutates inputs/viewports, and prunes flaky tests. |
+| **2. Causal AI** | `owl_qa_causal.py` | Traces observed bugs to source causes and generates simplified explanations. |
+| **3. Bug Oracle** | `owl_qa_oracle.py` | Analyzes code diffs, forecasts regression risk, and configures monitors. |
+| **4. Sensory Testing** | `owl_qa_sensory.py` | Audits media playback, checks animation frames, and throttles network speeds. |
+| **5. Device Cloud** | `owl_qa_device_cloud.py` | Discovers Android ADB units and runs test pipelines in parallel. |
+| **6. Selector Healing** | `owl_qa_healer.py` | Diagnoses broken DOM selectors and repairs them in SQLite. |
+| **7. Bug Economics** | `owl_qa_economics.py` | Assigns financial debt weights to bugs based on impact and fix difficulty. |
+| **8. Living Graph** | `owl_qa_graph.py` | Clusters defects using NetworkX and calculates code blast radii. |
+| **9. Mirror Test** | `owl_qa_selftest.py` | Self-diagnostic testing of local SQLite, browsers, ports, and daemons. |
+| **10. Temporal Velocity** | `owl_qa_temporal.py` | Calculates test quality velocity and pinpoints regression events. |
+| **11. App Connectors** | `owl_qa_protocol.py` | Tests contracts on WebSockets, GraphQL endpoints, and gRPC methods. |
+| **12. Neural Mesh** | `owl_qa_orchestrator.py` | Manages the background event bus and serves diagnostic status on port 7700. |
 
 ---
 
-### 🔍 owl-research — The Research Engine (9 tools)
+## Complete Tool Suite (105 Tools)
 
-| Tool | What It Does |
-|------|-------------|
-| `research_quick` | DuckDuckGo + optional article extraction, <5 seconds |
-| `research_deep` | 4–6 parallel queries + dedup + synthesis, 15–30 seconds |
-| `research_compare` | Side-by-side research of 2–4 topics |
-| `extract_article` | Full article text from any URL |
-| `research_follow_up` | Generates 3 targeted follow-up angles from prior research |
-| `research_on_file` | Researches every library detected in a code file |
-| `research_first_principles` | Decomposes into axioms, mechanisms, constraints, alternatives |
-| `research_synthesize` | Structures raw data into clean Markdown reports |
-| `get_research_history` | Review what was already researched |
+### 🧠 owl-memory — Neuromorphic Engine (55+ tools)
+- **6 Memory Types**: Episodic, Semantic, Procedural, Somatic, Transactive, and Working memory.
+- **Einstein Relativistic Gravity**: Ranks relevant records by call-graph distance and emotional importance.
+- **Tesla Resonance**: Propagates context weight across code networks.
+- **Thiel Contradiction Detector**: Flags discrepancies between code comments and database records.
+- **Tata Stewardship**: Tracks package crash histories and inserts circuit breakers.
 
-**Intelligence features:**
-- **Memory-First Research Gate**: Checks memory at 0.80 confidence before any web call. Zero network cost on cache hits.
-- **Evolutionary Query Templates**: Tracks which search patterns yield best results and promotes them automatically
-- All results auto-stored in owl-memory, linked to active file
+### 🔍 owl-research — Search Engine (9 tools)
+- `research_quick`: High-speed web query under 5 seconds.
+- `research_deep`: Parallel multi-query synthesis.
+- `research_compare`: Compares up to 4 topics side-by-side.
+- `extract_article`: Captures full article text from a URL.
+- `research_first_principles`: Decomposes topics into axioms and constraints.
 
----
+### 🌐 owl-web — Web Intelligence (10 tools)
+- `web_fetch`: Standard static webpage retrieval.
+- `web_fetch_stealthy`: Cloudflare bypass for protected portals.
+- `web_fetch_dynamic`: JavaScript page execution.
+- `web_scrape_adaptive`: Extracts targets even after site layout changes.
+- `web_diff`: Maps change diffs between page snapshots.
 
-### 🌐 owl-web — The Web Intelligence Engine (10 tools)
-
-| Tool | What It Does |
-|------|-------------|
-| `web_fetch` | Fast HTTP fetch — static pages, JSON, docs |
-| `web_fetch_stealthy` | **Cloudflare bypass built-in** — LinkedIn, Twitter, Reddit |
-| `web_fetch_dynamic` | JavaScript execution — React, Vue, SPAs |
-| `web_scrape_adaptive` | **Survives site redesigns** — auto-relocates elements |
-| `web_batch_fetch` | Up to 20 URLs in parallel |
-| `web_extract_structured` | Title + metadata + headings + links + tables in one call |
-| `web_diff` | Detects and classifies changes between page snapshots |
-| `web_monitor_start` | Register URLs for recurring change detection |
-| `web_session_scrape` | Multiple selectors from one page, one browser session |
-| `web_research_crawl` | 20-page depth crawl following internal links |
-
-**Intelligence features:**
-- **Domain Temporal Freshness**: Per-domain exponential decay (Reuters: 1 day, GitHub: 90 days, RBI: 365 days)
-- **Domain Trust Ledger**: Tracks source quality across fetches; warns on low-trust domains
-- **Semantic Change Classification**: Price changes, security alerts, regulatory updates — auto-classified
-- **Tesla Resonant Monitoring**: Adapts check frequency based on historical change patterns
-
----
-
-## Honest Comparison
-
-| | **OWL** | Mem0 | Supermemory | RecallNest |
-|---|---|---|---|---|
-| **Tools** | **55+** | 5 | 7 | 42 |
-| **Memory types** | **6** | 2 | 2 | 2 |
-| **Hallucination check** | **✅** | ❌ | ❌ | ❌ |
-| **Reasoning engine** | **✅** | ❌ | ❌ | ❌ |
-| **Cloudflare bypass** | **✅** | ❌ | ❌ | ❌ |
-| **P2P mesh** | **✅** | ❌ | ❌ | ❌ |
-| **Bug vaccines** | **✅** | ❌ | ❌ | ❌ |
-| **Cognitive biorhythm** | **✅** | ❌ | ❌ | ❌ |
-| **Adaptive scraping** | **✅** | ❌ | ❌ | ❌ |
-| **Self-optimizing** | **✅** | ❌ | ❌ | ❌ |
-| **95% token reduction** | **✅ (proven)** | ❌ | ❌ | ❌ |
-| **Fully local** | **✅** | optional | ❌ | ✅ |
-| **Zero API keys** | **✅** | ❌ | ❌ | ✅ |
-| **Cloud sync** | ❌ planned | ✅ | ✅ | ❌ |
-| **Gmail/Notion connectors** | ❌ planned | ✅ | ✅ | ❌ |
-
-**Verdict**: Mem0 and Supermemory are filing cabinets. OWL is a brain. They win on cloud ecosystem. OWL wins on every intelligence dimension.
+### 🧪 owl-qa — Quality Assurance (31 tools)
+- `qa_inspect_web`: Analyzes layout elements, console outputs, and visual score metrics.
+- `qa_android_inspect`: Captures Android screenshots and UI hierarchy.
+- `qa_api_inspect`: Exercises endpoints against common edge cases.
+- `qa_interact_web`: Performs sequence steps on a target website.
+- `qa_android_interact`: Automates taps and keystrokes on connected Android units.
+- `qa_test_flow`: Auto-runs user flows with AI-generated navigation helpers.
+- `qa_regression_check`: Validates performance and layout shifts against baseline records.
+- `qa_sherlock`: Recreates bugs by systematically changing inputs and screen sizes.
+- `qa_accessibility_audit`: Evaluates WCAG compliance.
+- `qa_performance_probe`: Validates Web Vitals and detects memory leaks.
+- `qa_chaos_probe`: Injects failures (Offline, Slow 3G) during test flows.
+- `qa_harmonic_audit`: Verifies visual page grids.
+- `qa_sentinel_register`: Commits a workflow to the 24/7 background monitor list.
+- `qa_explain_bug`: Explains bugs in plain language tailored to the audience.
+- `qa_predict_bugs`: Scans code diffs to warn about high-risk changes.
+- `qa_sensory_audit`: Measures playback audio/video states and frame rates.
+- `qa_economics_report`: Outlines bug priority based on technical debt cost.
+- `qa_knowledge_graph`: Connects and draws test results in a network structure.
+- `qa_temporal_analysis`: Tracks change speed and regression patterns.
+- `qa_protocol_test`: Connects and tests GraphQL, WebSocket, or gRPC methods.
+- `qa_compare_apps`: Runs a test flow on staging and production side-by-side.
+- `qa_load_test`: Spins up to 25 parallel browser workflows to test server load.
+- `qa_user_story_generate`: Translates user stories into step-by-step test commands.
+- `qa_competitive_audit`: Runs audits on your site and a competitor's site.
+- `qa_genome_evolve`: Evaluates and mutates the current test pool.
+- `qa_genome_register_flow`: Saves a new workflow inside the evolutionary pool.
+- `qa_causal_chain`: Pinpoints root causes of errors.
+- `qa_device_cloud_scan`: Auto-discovers active USB/WiFi Android devices.
+- `qa_device_parallel_test`: Dispatches a mobile test to multiple Android units at once.
+- `qa_selftest`: Performs a full diagnostic check on OWL QA.
+- `qa_orchestrator_status`: Reviews the health status of all 12 pillars.
 
 ---
 
-## Installation (30 seconds)
+## Installation
 
 ### Prerequisites
 - Node.js v18+
 - Python 3.10+
 
 ### Setup
-
 ```bash
 git clone https://github.com/gauravv-g/owl-memory-mcp.git
 cd owl-memory-mcp
 npm install
-pip install starlette uvicorn sse-starlette mcp scrapling beautifulsoup4 lxml html2text duckduckgo-search newspaper3k lxml_html_clean
+pip install starlette uvicorn sse-starlette mcp scrapling beautifulsoup4 lxml html2text duckduckgo-search newspaper3k lxml_html_clean playwright uiautomator2 pillow anthropic aiohttp networkx
+playwright install
 ```
 
-### Start the Gateway
+---
 
+## Running the Subsystem
+
+### 1. Start the Gateway (Memory, Web, Research)
 ```bash
 python owl_gateway.py
 ```
+This gateway handles communication on `http://localhost:3710`.
 
-Runs on `http://localhost:3710`. All three servers live here.
+### 2. Start the Sentinel Daemon & Status Monitor (QA Subsystem)
+```bash
+python owl_sentinel.py
+```
+This runs the background test schedules and hosts the Neural Mesh status server on `http://localhost:7700`.
 
 ---
 
@@ -294,6 +243,10 @@ File: `%APPDATA%\Claude\claude_desktop_config.json`
     "owl-research": {
       "command": "npx",
       "args": ["-y", "mcp-remote", "http://localhost:3710/research/sse"]
+    },
+    "owl-qa": {
+      "command": "python",
+      "args": ["c:/Users/shiva/hermes-custom-mcps/owl_qa_mcp.py"]
     }
   }
 }
@@ -307,52 +260,16 @@ File: `%USERPROFILE%\.cursor\mcp.json`
   "mcpServers": {
     "owl-memory": { "url": "http://localhost:3710/memory/sse" },
     "owl-web":    { "url": "http://localhost:3710/web/sse" },
-    "owl-research": { "url": "http://localhost:3710/research/sse" }
+    "owl-research": { "url": "http://localhost:3710/research/sse" },
+    "owl-qa": {
+      "command": "python",
+      "args": ["c:/Users/shiva/hermes-custom-mcps/owl_qa_mcp.py"]
+    }
   }
 }
 ```
 
-### Windsurf / Other MCP Clients
-Point each server at the SSE endpoints above. Any MCP-compatible client works.
-
----
-
-## The Architecture (for the curious)
-
-```
-owl_memory_v5.js     — Core memory engine (Node.js, 170KB, SQLite)
-owl_research_mcp.py  — Research engine (Python, DuckDuckGo + newspaper3k)
-owl_web_mcp.py       — Web intelligence (Python, Scrapling + Playwright)
-owl_gateway.py       — Universal HTTP/SSE gateway (port 3710)
-owl_daemon.js        — Background watcher (file events, dream cycles)
-owl_mesh.js          — P2P LAN cognitive mesh (UDP multicast)
-owl_shared_intelligence.py — Shared DB bridge (research ↔ web ↔ memory)
-```
-
-All three MCP servers read and write the same SQLite at `~/.owl-memory/memory-v5.db`. Your data is yours. You can query it directly with any SQLite viewer.
-
----
-
-## The Origin Story
-
-Every morning I'd open Cursor and spend the first 10 minutes re-explaining my codebase to an AI that had forgotten everything overnight. Then I'd pay for those tokens. Then I'd watch it make the same mistake it made last week.
-
-I tried Mem0. I tried Supermemory. They help with basic recall. But they're filing cabinets. I wanted something that **thinks** about what it knows.
-
-So I built OWL over 6 months.
-
-The thing I discovered while building it: **the amnesia problem was the easy part.** The harder problem is that AI assistants sometimes confidently contradict knowledge you've given them before. So I built the Hallucination Firewall. And the Cargo Cult Detector. And the Constitutional Checker. And eventually the P2P Mesh, because I realized the real leverage isn't one developer's memory — it's a team's collective immunity to bugs they've already seen.
-
-OWL is what I wanted to exist. Now it does.
-
 ---
 
 ## License
-
 MIT. Free to use, fork, extend, and distribute. Forever.
-
----
-
-<p align="center">
-  <strong>⭐ Star this repo if OWL saves you from one bad Friday afternoon deploy.</strong>
-</p>
