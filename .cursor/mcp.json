@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "owl-memory": {
+      "url": "http://localhost:3710/memory/sse"
+    },
+    "owl-web": {
+      "url": "http://localhost:3710/web/sse"
+    },
+    "owl-research": {
+      "url": "http://localhost:3710/research/sse"
+    }
+  }
+}

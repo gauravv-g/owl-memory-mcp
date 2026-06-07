@@ -1,0 +1,192 @@
+{
+  "C:\\Users\\shiva\\hermes-custom-mcps\\build_v3.1.js": {
+    "mtime": 1780594923.0937092,
+    "ast_hash": "2124eb466841fa0308c5849f76873372",
+    "semantic_hash": "2124eb466841fa0308c5849f76873372"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\owl_memory.js": {
+    "mtime": 1780574191.692197,
+    "ast_hash": "6643728d1a31a7b64d6681a474987960",
+    "semantic_hash": "6643728d1a31a7b64d6681a474987960"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\owl_memory.py": {
+    "mtime": 1780569616.905445,
+    "ast_hash": "699f683f925c5ae0d5e383143e43ac78",
+    "semantic_hash": "699f683f925c5ae0d5e383143e43ac78"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\owl_memory_v2.js": {
+    "mtime": 1780577434.9149933,
+    "ast_hash": "4220d60042fb2ab3158f3e0a42566268",
+    "semantic_hash": "4220d60042fb2ab3158f3e0a42566268"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\owl_memory_v3.1.js": {
+    "mtime": 1780596157.5767577,
+    "ast_hash": "c32873518dc27a40b12e01a28d74f2e9",
+    "semantic_hash": "c32873518dc27a40b12e01a28d74f2e9"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\owl_memory_v3.1_handlers.js": {
+    "mtime": 1780596132.2646332,
+    "ast_hash": "99320000acde45cbc453a660ba0b1ba2",
+    "semantic_hash": "99320000acde45cbc453a660ba0b1ba2"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\owl_memory_v3.2.js": {
+    "mtime": 1780638596.0153804,
+    "ast_hash": "b4dd3f3aad28420c93bb10f083b5125f",
+    "semantic_hash": "b4dd3f3aad28420c93bb10f083b5125f"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\owl_memory_v3.2_handlers.js": {
+    "mtime": 1780634639.1199148,
+    "ast_hash": "d714ff363f37180efd96cf4c203b3273",
+    "semantic_hash": "d714ff363f37180efd96cf4c203b3273"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\owl_memory_v3.js": {
+    "mtime": 1780629768.8698726,
+    "ast_hash": "4ec7b720b8c958725a2a49bf9135f877",
+    "semantic_hash": "4ec7b720b8c958725a2a49bf9135f877"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\owl_memory_v3_final.js": {
+    "mtime": 1780593964.0548315,
+    "ast_hash": "76d014ed9160a0d59e793b1d6edf0fce",
+    "semantic_hash": "76d014ed9160a0d59e793b1d6edf0fce"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\owl_memory_v3_handlers.js": {
+    "mtime": 1780583422.9176493,
+    "ast_hash": "50e1782ee4d368db9848ceb094bda3ef",
+    "semantic_hash": "50e1782ee4d368db9848ceb094bda3ef"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\owl_memory_v4.js": {
+    "mtime": 1780647053.8548143,
+    "ast_hash": "c272b1affbb3d1f3ebae69d4e641faa9",
+    "semantic_hash": "c272b1affbb3d1f3ebae69d4e641faa9"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\package.json": {
+    "mtime": 1780593366.5133276,
+    "ast_hash": "64222cf1e33444f70643629ed9df8fda",
+    "semantic_hash": "64222cf1e33444f70643629ed9df8fda"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\patch_v3.1.js": {
+    "mtime": 1780593702.7205727,
+    "ast_hash": "c2b2e4cfd360795abef3b0723c90d64d",
+    "semantic_hash": "c2b2e4cfd360795abef3b0723c90d64d"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\pody_context.py": {
+    "mtime": 1780568388.4393451,
+    "ast_hash": "0936077e0f38b3a4e53f69b7111ef7be",
+    "semantic_hash": "0936077e0f38b3a4e53f69b7111ef7be"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_benchmark.js": {
+    "mtime": 1780638065.3366942,
+    "ast_hash": "99584f453639c89171617df3cc9cfda0",
+    "semantic_hash": "99584f453639c89171617df3cc9cfda0"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_debug.js": {
+    "mtime": 1780619425.3766484,
+    "ast_hash": "d7461e7a4e336d4eda5f92df1cbf90e7",
+    "semantic_hash": "d7461e7a4e336d4eda5f92df1cbf90e7"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_e2e.js": {
+    "mtime": 1780624950.8544757,
+    "ast_hash": "54fa4cc4479f0f6a0e06daf026754c23",
+    "semantic_hash": "54fa4cc4479f0f6a0e06daf026754c23"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_embeddings.js": {
+    "mtime": 1780593435.0462258,
+    "ast_hash": "3d979998af5682e533a299050ba7aeff",
+    "semantic_hash": "3d979998af5682e533a299050ba7aeff"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_final.js": {
+    "mtime": 1780639193.805264,
+    "ast_hash": "8d2e39e7057176c62d63e13ed181597e",
+    "semantic_hash": "8d2e39e7057176c62d63e13ed181597e"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_graph_ui.js": {
+    "mtime": 1780638697.5750318,
+    "ast_hash": "fd4480e330e6ae87fbcddad9213a7b42",
+    "semantic_hash": "fd4480e330e6ae87fbcddad9213a7b42"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_graph_ui2.js": {
+    "mtime": 1780638811.7399037,
+    "ast_hash": "c3d1a8aedbe97070b3eab87f65d9d4e3",
+    "semantic_hash": "c3d1a8aedbe97070b3eab87f65d9d4e3"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_graph_ui3.js": {
+    "mtime": 1780638946.0034525,
+    "ast_hash": "6ff2e294a765ec63b313b3c45752f41f",
+    "semantic_hash": "6ff2e294a765ec63b313b3c45752f41f"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_graph_ui4.js": {
+    "mtime": 1780639064.6347568,
+    "ast_hash": "943faf969adf77ae1220b99d684d7d9a",
+    "semantic_hash": "943faf969adf77ae1220b99d684d7d9a"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_ner.js": {
+    "mtime": 1780634907.4692771,
+    "ast_hash": "ef800bb55195a3f71e8d5cfa3d1d8b50",
+    "semantic_hash": "ef800bb55195a3f71e8d5cfa3d1d8b50"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_ner_debug.js": {
+    "mtime": 1780635043.0437155,
+    "ast_hash": "6e1a987fbe51be12166ab8c014d76afe",
+    "semantic_hash": "6e1a987fbe51be12166ab8c014d76afe"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_v3.js": {
+    "mtime": 1780589119.2705617,
+    "ast_hash": "8a0412d93ba68fc7c01ee2959a965f88",
+    "semantic_hash": "8a0412d93ba68fc7c01ee2959a965f88"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_v4_comprehensive.js": {
+    "mtime": 1780647257.3797543,
+    "ast_hash": "1c6e01d8478b9c061c8e25f5365520c1",
+    "semantic_hash": "1c6e01d8478b9c061c8e25f5365520c1"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_v4_final.js": {
+    "mtime": 1780647569.6449008,
+    "ast_hash": "f341d58b91f5ebcc5e6133c61e58b152",
+    "semantic_hash": "f341d58b91f5ebcc5e6133c61e58b152"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_v4_proof.js": {
+    "mtime": 1780648138.1328583,
+    "ast_hash": "e4ce23c16d2f4fd7885298b0dd5b1344",
+    "semantic_hash": "e4ce23c16d2f4fd7885298b0dd5b1344"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_v4_quick.js": {
+    "mtime": 1780647943.4215,
+    "ast_hash": "76788e13e5ec9099782806a4a955b8e6",
+    "semantic_hash": "76788e13e5ec9099782806a4a955b8e6"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_vec.js": {
+    "mtime": 1780593052.7712097,
+    "ast_hash": "afbf5d047fb9ae11a8939b519e41e96a",
+    "semantic_hash": "afbf5d047fb9ae11a8939b519e41e96a"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_vec_debug.js": {
+    "mtime": 1780594661.6941397,
+    "ast_hash": "f05c75c88ea573749533948046460d3e",
+    "semantic_hash": "f05c75c88ea573749533948046460d3e"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_vec_quick.js": {
+    "mtime": 1780625487.9459195,
+    "ast_hash": "f96bcdc888c59f73f5504b57a9984ebf",
+    "semantic_hash": "f96bcdc888c59f73f5504b57a9984ebf"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_vec_store.js": {
+    "mtime": 1780596733.7749307,
+    "ast_hash": "26bb0874a9c0761b71da76228cdaf2c5",
+    "semantic_hash": "26bb0874a9c0761b71da76228cdaf2c5"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\test_vector_e2e.js": {
+    "mtime": 1780594750.5127783,
+    "ast_hash": "90ead476fc5c935240d567a9ec4257be",
+    "semantic_hash": "90ead476fc5c935240d567a9ec4257be"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\COMPARISON.md": {
+    "mtime": 1780639287.8799937,
+    "ast_hash": "8e0fc4504694cd2df3809729e2cd3e5d",
+    "semantic_hash": "8e0fc4504694cd2df3809729e2cd3e5d"
+  },
+  "C:\\Users\\shiva\\hermes-custom-mcps\\graph-ui-preview.html": {
+    "mtime": 1780639246.7881925,
+    "ast_hash": "051400ce4c03039f9f0d2656a269f1c9",
+    "semantic_hash": "051400ce4c03039f9f0d2656a269f1c9"
+  }
+}

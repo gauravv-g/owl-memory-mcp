@@ -153,7 +153,6 @@ const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 db.pragma("synchronous = NORMAL");
-db.pragma("wal_autocheckpoint = 100");
 
 hasVectors = loadSqliteVec(db);
 if (hasVectors) {
@@ -170,9 +169,7 @@ db.exec(`
     access_count INTEGER DEFAULT 0, last_accessed TEXT, next_review TEXT, review_interval REAL DEFAULT 1.0,
     source TEXT DEFAULT 'conversation', mood_tag TEXT, metadata TEXT DEFAULT '{}',
     is_active INTEGER DEFAULT 1, is_consolidated INTEGER DEFAULT 0,
-    generation INTEGER DEFAULT 1, fitness_score REAL DEFAULT 0.5, feynman_level INTEGER DEFAULT 1,
-    is_shareable INTEGER DEFAULT 0, mesh_source_node TEXT, original_content TEXT,
-    stale_flag INTEGER DEFAULT 0, provenance_chain TEXT, tags TEXT
+    generation INTEGER DEFAULT 1, fitness_score REAL DEFAULT 0.5, feynman_level INTEGER DEFAULT 1
   );
   
   CREATE TABLE IF NOT EXISTS memory_git_branches (
@@ -301,28 +298,6 @@ db.exec(`
     payload TEXT DEFAULT '{}',
     created_at TEXT NOT NULL,
     consumed INTEGER DEFAULT 0
-  );
-
-  -- ═══ Innovation Predictive Layer ═══
-  CREATE TABLE IF NOT EXISTS causal_predictions (
-    id TEXT PRIMARY KEY,
-    trigger_pattern TEXT NOT NULL,
-    predicted_event TEXT NOT NULL,
-    predicted_file TEXT,
-    confidence REAL DEFAULT 0.5,
-    predicted_at TEXT NOT NULL,
-    verify_at TEXT NOT NULL,
-    verified_at TEXT,
-    outcome TEXT DEFAULT 'pending'
-  );
-
-  CREATE TABLE IF NOT EXISTS memory_observer_sessions (
-    session_id TEXT NOT NULL,
-    observer_type TEXT NOT NULL,
-    observer_context TEXT,
-    top_memories TEXT,
-    resolution_time_ms INTEGER,
-    resolution_outcome TEXT
   );
 
   -- ═══ Innovation 1: Session Resurrection Protocol ═══
@@ -514,901 +489,26 @@ db.exec(`
     dissonance_alert INTEGER DEFAULT 0,
     analyzed_at TEXT NOT NULL
   );
-
-  -- Pillar 1: Hallucination Firewall
-  CREATE TABLE IF NOT EXISTS hallucination_registry (
-    id TEXT PRIMARY KEY,
-    agent_claim TEXT NOT NULL,
-    ground_truth TEXT,
-    discrepancy_score REAL,
-    correction_injected TEXT,
-    project TEXT DEFAULT 'default',
-    detected_at TEXT NOT NULL
-  );
-  
-  -- Pillar 3: Feynman Cargo Cult Detector
-  CREATE TABLE IF NOT EXISTS cargo_cult_registry (
-    id TEXT PRIMARY KEY,
-    code_snippet_hash TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    paste_detected_at TEXT NOT NULL,
-    has_rationale_memory INTEGER DEFAULT 0,
-    rationale_memory_id TEXT,
-    risk_level TEXT
-  );
-  
-  -- Pillar 4: Competitive Memory Selection - Fossil Record
-  CREATE TABLE IF NOT EXISTS fossil_record (
-    id TEXT PRIMARY KEY,
-    original_content TEXT NOT NULL,
-    final_fitness REAL,
-    extinction_date TEXT NOT NULL,
-    reason TEXT
-  );
-  
-  -- Pillar 8: Naval Specific Knowledge Crystals
-  CREATE TABLE IF NOT EXISTS specific_knowledge_crystals (
-    id TEXT PRIMARY KEY,
-    domain TEXT NOT NULL,
-    knowledge_content TEXT NOT NULL,
-    uniqueness_score REAL DEFAULT 0.5,
-    moat_classification TEXT,
-    times_applied REAL DEFAULT 0,
-    created_at TEXT NOT NULL
-  );
-  
-  -- Pillar 9: Tata Project Constitution
-  CREATE TABLE IF NOT EXISTS project_constitution (
-    id TEXT PRIMARY KEY,
-    article_number INTEGER NOT NULL UNIQUE,
-    title TEXT NOT NULL,
-    rule_definition TEXT NOT NULL,
-    is_mandatory INTEGER DEFAULT 1,
-    created_at TEXT NOT NULL
-  );
-  
-  -- Pillar 11: Da Vinci Cross-Modal Codex
-  CREATE TABLE IF NOT EXISTS codex_memories (
-    id TEXT PRIMARY KEY,
-    memory_type TEXT NOT NULL,
-    raw_content BLOB,
-    extracted_text TEXT,
-    linked_code_nodes TEXT,
-    project TEXT DEFAULT 'default',
-    created_at TEXT NOT NULL
-  );
-  
-  -- Pillar 2: Einstein Observer Effect Reconsolidation Log
-  CREATE TABLE IF NOT EXISTS reconsolidation_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    memory_id TEXT NOT NULL,
-    valence_drift REAL,
-    arousal_drift REAL,
-    previous_strength REAL,
-    new_strength REAL,
-    recalled_at TEXT NOT NULL
-  );
-  
-  -- Pillar 5: Pythagoras Cognitive Biorhythm
-  CREATE TABLE IF NOT EXISTS cognitive_biorhythm (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    hour_of_day INTEGER NOT NULL,
-    day_of_week INTEGER NOT NULL,
-    historical_error_count INTEGER DEFAULT 0,
-    historical_success_count INTEGER DEFAULT 0,
-    avg_error_rate REAL DEFAULT 0.0,
-    risk_multiplier REAL DEFAULT 1.0,
-    updated_at TEXT NOT NULL,
-    UNIQUE(hour_of_day, day_of_week)
-  );
-
-  -- Pillar 12: Bounded Self-Optimization constants
-  CREATE TABLE IF NOT EXISTS synaptic_constants (
-    name TEXT PRIMARY KEY,
-    value REAL NOT NULL
-  );
-
-  -- D3: Cross-Server Events
-  CREATE TABLE IF NOT EXISTS cross_server_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_server TEXT,
-    event_type TEXT,
-    payload TEXT,
-    target_servers TEXT,
-    consumed_by TEXT DEFAULT '[]',
-    created_at TEXT
-  );
-
-  -- M2: Behavioral Turing Audit session log
-  CREATE TABLE IF NOT EXISTS session_behavior_log (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    event_type TEXT NOT NULL,
-    file_touched TEXT,
-    decision_made TEXT,
-    error_encountered TEXT,
-    contradiction_fired INTEGER DEFAULT 0,
-    vaccine_fired TEXT,
-    constitution_violated INTEGER DEFAULT 0,
-    processed INTEGER DEFAULT 0,
-    timestamp TEXT NOT NULL
-  );
-
-  -- M6: Code Topology Snapshots
-  CREATE TABLE IF NOT EXISTS code_topology_snapshots (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project TEXT NOT NULL,
-    node_count INTEGER DEFAULT 0,
-    edge_count INTEGER DEFAULT 0,
-    hotspot_centroid TEXT,
-    avg_gravity REAL DEFAULT 0.0,
-    complexity_score REAL DEFAULT 0.0,
-    captured_at TEXT NOT NULL
-  );
-
-  -- W5: Provenance-Preserving Web Store
-  CREATE TABLE IF NOT EXISTS web_provenance_chain (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    memory_id TEXT,
-    claim_text TEXT,
-    source_url TEXT,
-    source_trust REAL DEFAULT 0.5,
-    fetched_at TEXT,
-    is_contradicted INTEGER DEFAULT 0
-  );
 `);
 
 try {
-  db.exec("ALTER TABLE episodic_memories ADD COLUMN stale_flag INTEGER DEFAULT 0;");
-} catch(e) {}
+  db.exec("ALTER TABLE episodic_memories ADD COLUMN generation INTEGER DEFAULT 1;");
+} catch(e) { /* Ignore if exists */ }
 try {
-  db.exec("ALTER TABLE episodic_memories ADD COLUMN provenance_chain TEXT;");
-} catch(e) {}
+  db.exec("ALTER TABLE episodic_memories ADD COLUMN fitness_score REAL DEFAULT 0.5;");
+} catch(e) { /* Ignore if exists */ }
 try {
-  db.exec("ALTER TABLE episodic_memories ADD COLUMN tags TEXT;");
-} catch(e) {}
-
-// Phase 4: DB Schema Extensions
+  db.exec("ALTER TABLE episodic_memories ADD COLUMN feynman_level INTEGER DEFAULT 1;");
+} catch(e) { /* Ignore if exists */ }
 try {
-  db.exec("ALTER TABLE episodic_memories ADD COLUMN inherited INTEGER DEFAULT 0;");
-} catch(e) {}
+  db.exec("ALTER TABLE episodic_memories ADD COLUMN is_shareable INTEGER DEFAULT 0;");
+} catch(e) { /* Ignore if exists */ }
 try {
-  db.exec("ALTER TABLE episodic_memories ADD COLUMN donor_project TEXT;");
-} catch(e) {}
+  db.exec("ALTER TABLE episodic_memories ADD COLUMN mesh_source_node TEXT;");
+} catch(e) { /* Ignore if exists */ }
 try {
-  db.exec("ALTER TABLE episodic_memories ADD COLUMN transplant_confidence REAL DEFAULT 1.0;");
-} catch(e) {}
-try {
-  db.exec("ALTER TABLE episodic_memories ADD COLUMN template_id TEXT;");
-} catch(e) {}
-
-try {
-  db.exec("ALTER TABLE memory_programs ADD COLUMN inherited INTEGER DEFAULT 0;");
-} catch(e) {}
-try {
-  db.exec("ALTER TABLE memory_programs ADD COLUMN donor_project TEXT;");
-} catch(e) {}
-try {
-  db.exec("ALTER TABLE memory_programs ADD COLUMN transplant_confidence REAL DEFAULT 1.0;");
-} catch(e) {}
-try {
-  db.exec("ALTER TABLE memory_programs ADD COLUMN template_id TEXT;");
-} catch(e) {}
-
-try {
-  db.exec("ALTER TABLE project_constitution ADD COLUMN inherited INTEGER DEFAULT 0;");
-} catch(e) {}
-try {
-  db.exec("ALTER TABLE project_constitution ADD COLUMN donor_project TEXT;");
-} catch(e) {}
-try {
-  db.exec("ALTER TABLE project_constitution ADD COLUMN transplant_confidence REAL DEFAULT 1.0;");
-} catch(e) {}
-try {
-  db.exec("ALTER TABLE project_constitution ADD COLUMN template_id TEXT;");
-} catch(e) {}
-
-let synapticConstants = {
-  gravity_decay: 0.15,
-  resonance_stiffness: 0.6,
-  resonance_damping: 0.2,
-  compression_threshold: 0.3
-};
-
-function initSynapticConstants() {
-  const count = db.prepare("SELECT COUNT(*) as cnt FROM synaptic_constants").get()?.cnt || 0;
-  if (count === 0) {
-    for (const [k, v] of Object.entries(synapticConstants)) {
-      db.prepare("INSERT INTO synaptic_constants (name, value) VALUES (?, ?)").run(k, v);
-    }
-  } else {
-    const rows = db.prepare("SELECT * FROM synaptic_constants").all();
-    for (const r of rows) {
-      if (synapticConstants[r.name] !== undefined) {
-        synapticConstants[r.name] = r.value;
-      }
-    }
-  }
-}
-initSynapticConstants();
-
-function runSelfOptimization(projectId = "default") {
-  const now = new Date().toISOString();
-  let stats;
-  try {
-    stats = db.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) as success FROM pheromone_trails WHERE project = ?").get(projectId);
-  } catch(e) {}
-  const currentMetric = stats && stats.total > 0 ? stats.success / stats.total : 0.5;
-
-  for (const [k, v] of Object.entries(synapticConstants)) {
-    if (k === 'resonance_stiffness' || k === 'resonance_damping') continue;
-
-    const lastMetric = getSynapticConstant(k + "_last_metric", -1.0);
-    const lastDirection = getSynapticConstant(k + "_direction", 1.0);
-    let direction = lastDirection;
-
-    if (currentMetric < lastMetric) {
-      direction = -lastDirection;
-      db.prepare("INSERT OR REPLACE INTO synaptic_constants (name, value) VALUES (?, ?)").run(k + "_direction", direction);
-    }
-
-    db.prepare("INSERT OR REPLACE INTO synaptic_constants (name, value) VALUES (?, ?)").run(k + "_last_metric", currentMetric);
-
-    const perturbation = direction * 0.05 * v;
-    let newValue = v + perturbation;
-    newValue = Math.max(0.1, Math.min(2.0, newValue));
-
-    synapticConstants[k] = newValue;
-    db.prepare("INSERT OR REPLACE INTO synaptic_constants (name, value) VALUES (?, ?)").run(k, newValue);
-  }
-}
-
-function checkHallucinations(agentClaim, projectId = "default") {
-  const facts = db.prepare("SELECT content, confidence FROM semantic_memories WHERE project = ? AND is_active = 1").all(projectId);
-  const now = new Date().toISOString();
-  
-  const contradictions = [];
-  for (const f of facts) {
-    const similarity = calculateSimilarity(agentClaim, f.content);
-    if (similarity > 0.45) {
-      const neg = ["no", "not", "disabled", "remove", "changed", "false", "never"];
-      const claimNeg = neg.some(w => agentClaim.toLowerCase().includes(w));
-      const factNeg = neg.some(w => f.content.toLowerCase().includes(w));
-      
-      if (claimNeg !== factNeg) {
-        const id = generateId(agentClaim, "hallucination");
-        const discrepancy = similarity;
-        const correction = `[TURING FIREWALL CORRECTION]: Ground truth dictates "${f.content}". Claim contradicts this.`;
-        
-        db.prepare(`
-          INSERT OR IGNORE INTO hallucination_registry (id, agent_claim, ground_truth, discrepancy_score, correction_injected, project, detected_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(id, agentClaim, f.content, discrepancy, correction, projectId, now);
-        
-        // Log in session_behavior_log
-        try {
-          const lastSession = db.prepare("SELECT id FROM session_states WHERE project = ? ORDER BY ended_at DESC LIMIT 1").get(projectId);
-          const currentSessionId = lastSession ? lastSession.id : 'default_session';
-          db.prepare(`
-            INSERT INTO session_behavior_log (id, session_id, event_type, contradiction_fired, timestamp)
-            VALUES (?, ?, 'contradiction', 1, ?)
-          `).run(generateId('contra_' + id + now, 'behavior'), currentSessionId, now);
-        } catch(e) {}
-        
-        contradictions.push({
-          type: "hallucination",
-          message: correction,
-          claim: agentClaim,
-          ground_truth: f.content
-        });
-      }
-    }
-  }
-  return contradictions;
-}
-
-function reconsolidateMemory(memId, emotionalContext = { valence: 0, arousal: 0 }) {
-  const now = new Date().toISOString();
-  const mem = db.prepare("SELECT strength, emotional_valence, emotional_arousal FROM episodic_memories WHERE id = ?").get(memId);
-  if (!mem) return;
-  
-  const valenceDrift = emotionalContext.valence * 0.02;
-  const arousalDrift = emotionalContext.arousal * 0.02;
-  
-  const previousStrength = mem.strength;
-  const newStrength = Math.min(5.0, mem.strength + 0.05);
-  
-  db.prepare(`
-    UPDATE episodic_memories
-    SET strength = ?, emotional_valence = MIN(1.0, MAX(-1.0, emotional_valence + ?)),
-        emotional_arousal = MIN(1.0, MAX(0.0, emotional_arousal + ?)), updated_at = ?
-    WHERE id = ?
-  `).run(newStrength, valenceDrift, arousalDrift, now, memId);
-  
-  db.prepare(`
-    INSERT INTO reconsolidation_log (memory_id, valence_drift, arousal_drift, previous_strength, new_strength, recalled_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(memId, valenceDrift, arousalDrift, previousStrength, newStrength, now);
-}
-
-function runCargoCultDetector(activeFile, codeSnippet, projectId = "default") {
-  if (!activeFile || !codeSnippet || codeSnippet.length < 50) return null;
-  const hash = crypto.createHash("sha256").update(codeSnippet).digest("hex").slice(0, 16);
-  const now = new Date().toISOString();
-  
-  const existing = db.prepare("SELECT id FROM cargo_cult_registry WHERE code_snippet_hash = ?").get(hash);
-  if (existing) return null;
-  
-  const fileKey = activeFile.replace(/\\/g, "/");
-  const memories = db.prepare(`
-    SELECT em.id, em.content FROM episodic_memories em
-    JOIN memory_code_links mcl ON mcl.memory_id = em.id
-    WHERE mcl.code_node_id LIKE ? AND em.project = ?
-  `).all(`%${fileKey}%`, projectId);
-  
-  const hasRationale = memories.some(m => 
-    m.content.toLowerCase().includes("rationale") || 
-    m.content.toLowerCase().includes("why") || 
-    m.content.toLowerCase().includes("reason") ||
-    m.content.toLowerCase().includes("because")
-  );
-  
-  if (!hasRationale) {
-    const id = generateId(codeSnippet, "cargo_cult");
-    db.prepare(`
-      INSERT INTO cargo_cult_registry (id, code_snippet_hash, file_path, paste_detected_at, has_rationale_memory, risk_level)
-      VALUES (?, ?, ?, ?, 0, 'medium')
-    `).run(id, hash, fileKey, now);
-    
-    // Log to session_behavior_log
-    try {
-      const lastSession = db.prepare("SELECT id FROM session_states WHERE project = ? ORDER BY ended_at DESC LIMIT 1").get(projectId);
-      const currentSessionId = lastSession ? lastSession.id : 'default_session';
-      db.prepare(`
-        INSERT INTO session_behavior_log (id, session_id, event_type, timestamp)
-        VALUES (?, ?, 'cargo_cult', ?)
-      `).run(generateId('cargo_' + id + now, 'behavior'), currentSessionId, now);
-    } catch(e) {}
-
-    return {
-      type: "cargo_cult",
-      message: `⚠️ FEYNMAN CARGO CULT WARNING: Snippet in [${activeFile}] pasted without recorded rationale. Store why you are using this pattern.`
-    };
-  }
-  return null;
-}
-
-function getCognitiveBiorhythmStatus() {
-  const now = new Date();
-  const currentHour = now.getHours();
-  const currentDay = now.getDay();
-  
-  const row = db.prepare("SELECT avg_error_rate, risk_multiplier FROM cognitive_biorhythm WHERE hour_of_day = ? AND day_of_week = ?").get(currentHour, currentDay);
-  
-  let multiplier = 1.0;
-  if (row) {
-    multiplier = row.risk_multiplier;
-  }
-  
-  if (currentDay === 5 && currentHour >= 15 && currentHour <= 17) {
-    multiplier = 3.2; // Friday afternoon high-risk window
-  }
-  
-  if (multiplier > 2.0) {
-    return {
-      high_risk: true,
-      risk_multiplier: multiplier,
-      message: `⚠️ PYTHAGORAS: You are in your historical crash window (error rate ${multiplier}x higher). Defer critical deploys.`
-    };
-  }
-  return { high_risk: false, risk_multiplier: multiplier };
-}
-
-function updateBiorhythmStats() {
-  const now = new Date().toISOString();
-  const errors = db.prepare("SELECT created_at FROM episodic_memories WHERE event_type = 'error'").all();
-  const allMems = db.prepare("SELECT created_at FROM episodic_memories").all();
-  
-  const errorCounts = {};
-  const totalCounts = {};
-  
-  for (const e of errors) {
-    try {
-      const dt = new Date(e.created_at);
-      const key = `${dt.getDay()}_${dt.getHours()}`;
-      errorCounts[key] = (errorCounts[key] || 0) + 1;
-    } catch(err) {}
-  }
-  
-  for (const m of allMems) {
-    try {
-      const dt = new Date(m.created_at);
-      const key = `${dt.getDay()}_${dt.getHours()}`;
-      totalCounts[key] = (totalCounts[key] || 0) + 1;
-    } catch(err) {}
-  }
-  
-  for (const [key, total] of Object.entries(totalCounts)) {
-    const [day, hour] = key.split("_").map(Number);
-    const errs = errorCounts[key] || 0;
-    const rate = errs / total;
-    const avgRate = errors.length / Math.max(1, allMems.length);
-    const multiplier = rate > avgRate ? (rate / avgRate) : 1.0;
-    
-    db.prepare(`
-      INSERT INTO cognitive_biorhythm (hour_of_day, day_of_week, historical_error_count, historical_success_count, avg_error_rate, risk_multiplier, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(hour_of_day, day_of_week) DO UPDATE SET
-        historical_error_count = excluded.historical_error_count,
-        avg_error_rate = excluded.avg_error_rate,
-        risk_multiplier = excluded.risk_multiplier,
-        updated_at = excluded.updated_at
-    `).run(hour, day, errs, total - errs, rate, multiplier, now);
-  }
-}
-
-function autoEvolveMetaPrograms(projectId = "default") {
-  const now = new Date().toISOString();
-  const bugs = db.prepare("SELECT bug_type, description, file_path FROM code_bugs WHERE project = ? AND is_active = 1").all(projectId);
-  if (bugs.length < 2) return;
-  
-  const counts = {};
-  for (const b of bugs) {
-    counts[b.bug_type] = (counts[b.bug_type] || 0) + 1;
-  }
-  
-  for (const [bugType, count] of Object.entries(counts)) {
-    if (count >= 2) {
-      const progName = `vaccine_${bugType.toLowerCase()}`;
-      const existing = db.prepare("SELECT id FROM memory_programs WHERE name = ?").get(progName);
-      if (existing) continue;
-      
-      const progCode = `
-        (function(code) {
-          const lowerCode = code.toLowerCase();
-          if (lowerCode.includes("error") || lowerCode.includes("fail")) {
-            return { triggered: true, score: 0.8, message: "Potential bug pattern of type ${bugType} detected." };
-          }
-          return { triggered: false };
-        })
-      `;
-      const id = generateId(progCode, "meta");
-      db.prepare(`
-        INSERT INTO memory_programs (id, name, description, program_code, project, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(id, progName, `Auto-evolved vaccine for ${bugType} bugs`, progCode, projectId, now, now);
-    }
-  }
-}
-
-function queryCrossProjectKnowledge(query, currentProject = "default") {
-  const rows = db.prepare("SELECT content, project, salience FROM episodic_memories WHERE project != ? AND is_active = 1 LIMIT 3").all(currentProject);
-  const matches = [];
-  for (const r of rows) {
-    const sim = calculateSimilarity(query, r.content);
-    if (sim > 0.4) {
-      matches.push({
-        type: "cross_project",
-        source_project: r.project,
-        content: r.content,
-        message: `🌐 CROSS-PROJECT TRANSFER: Identical pattern solved in project [${r.project}]: "${r.content.substring(0, 100)}..."`
-      });
-    }
-  }
-  return matches;
-}
-
-function crystallizeSpecificKnowledge(content, projectId = "default") {
-  const isWeb = content.includes("http://") || content.includes("https://") || content.includes("www.");
-  if (content.length > 100 && !isWeb) {
-    const id = generateId(content, "crystal");
-    const now = new Date().toISOString();
-    db.prepare(`
-      INSERT OR IGNORE INTO specific_knowledge_crystals (id, domain, knowledge_content, uniqueness_score, moat_classification, times_applied, created_at)
-      VALUES (?, 'architectural_wisdom', ?, 0.85, 'heuristic', 1, ?)
-    `).run(id, content, now);
-    return id;
-  }
-  return null;
-}
-
-function initProjectConstitution(projectId = "default") {
-  const count = db.prepare("SELECT COUNT(*) as cnt FROM project_constitution").get()?.cnt || 0;
-  if (count === 0) {
-    const now = new Date().toISOString();
-    db.prepare("INSERT INTO project_constitution (id, article_number, title, rule_definition, is_mandatory, created_at) VALUES (?, 1, 'Data Security', 'Sensitive credentials and keys must never be stored in plaintext.', 1, ?)").run("const_1", now);
-    db.prepare("INSERT INTO project_constitution (id, article_number, title, rule_definition, is_mandatory, created_at) VALUES (?, 2, 'Error Safety', 'Async calls must always be wrapped in try-catch blocks.', 1, ?)").run("const_2", now);
-    db.prepare("INSERT INTO project_constitution (id, article_number, title, rule_definition, is_mandatory, created_at) VALUES (?, 3, 'Clean Code', 'Function size should not exceed 100 lines.', 0, ?)").run("const_3", now);
-  }
-}
-
-function checkConstitutionalRules(codeSnippet, projectId = "default") {
-  if (!codeSnippet) return [];
-  initProjectConstitution(projectId);
-  const rules = db.prepare("SELECT * FROM project_constitution WHERE is_mandatory = 1").all();
-  
-  const violations = [];
-  const now = new Date().toISOString();
-  for (const r of rules) {
-    let violated = false;
-    if (r.article_number === 1) {
-      if (codeSnippet.match(/(?:key|password|secret|token)\s*=\s*['"][a-zA-Z0-9_-]{16,}['"]/i)) {
-        violated = true;
-      }
-    }
-    if (r.article_number === 2) {
-      if (codeSnippet.includes("async ") && !codeSnippet.includes("try") && !codeSnippet.includes("catch")) {
-        violated = true;
-      }
-    }
-    if (violated) {
-      violations.push({
-        type: "constitutional_violation",
-        message: `⚖️ CONSTITUTIONAL VIOLATION: Article ${r.article_number} — '${r.rule_definition}'`
-      });
-      // Log to session_behavior_log
-      try {
-        const lastSession = db.prepare("SELECT id FROM session_states WHERE project = ? ORDER BY ended_at DESC LIMIT 1").get(projectId);
-        const currentSessionId = lastSession ? lastSession.id : 'default_session';
-        db.prepare(`
-          INSERT INTO session_behavior_log (id, session_id, event_type, constitution_violated, timestamp)
-          VALUES (?, ?, 'constitution_violation', 1, ?)
-        `).run(generateId('const_viol_' + r.article_number + now, 'behavior'), currentSessionId, now);
-      } catch(e) {}
-    }
-  }
-  return violations;
-}
-
-function captureTopologySnapshot(projectId) {
-  try {
-    const nodeCount = db.prepare("SELECT COUNT(*) as cnt FROM code_nodes WHERE project = ?").get(projectId)?.cnt || 0;
-    const edgeCount = db.prepare("SELECT COUNT(*) as cnt FROM code_edges JOIN code_nodes ON code_edges.source_id = code_nodes.id WHERE code_nodes.project = ?").get(projectId)?.cnt || 0;
-    
-    const avgGravity = db.prepare("SELECT AVG(activation) as avg_grav FROM code_node_activation JOIN code_nodes ON code_node_activation.node_id = code_nodes.id WHERE code_nodes.project = ?").get(projectId)?.avg_grav || 0.0;
-    let centroidNode = db.prepare("SELECT filepath FROM code_nodes JOIN code_node_activation ON code_nodes.id = code_node_activation.node_id WHERE code_nodes.project = ? ORDER BY code_node_activation.activation DESC LIMIT 1").get(projectId);
-    if (!centroidNode) {
-      centroidNode = db.prepare("SELECT filepath FROM code_nodes WHERE project = ? ORDER BY bug_count DESC, edit_count DESC LIMIT 1").get(projectId);
-    }
-    const hotspotCentroid = centroidNode ? centroidNode.filepath : null;
-    const complexityScore = nodeCount * 1.5 + edgeCount * 2.5 + (avgGravity * 10);
-
-    const now = new Date().toISOString();
-    db.prepare(`
-      INSERT INTO code_topology_snapshots (project, node_count, edge_count, hotspot_centroid, avg_gravity, complexity_score, captured_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(projectId, nodeCount, edgeCount, hotspotCentroid, avgGravity, complexityScore, now);
-  } catch(e) {
-    console.error("[captureTopologySnapshot ERROR]", e);
-  }
-}
-
-function computeTopologyDiff(projectId) {
-  try {
-    const snapshots = db.prepare(`
-      SELECT * FROM code_topology_snapshots 
-      WHERE project = ? 
-      ORDER BY captured_at DESC LIMIT 2
-    `).all(projectId);
-    
-    if (snapshots.length < 2) return null;
-    const current = snapshots[0];
-    const previous = snapshots[1];
-    
-    const nodeDiff = current.node_count - previous.node_count;
-    const edgeDiff = current.edge_count - previous.edge_count;
-    const complexityDiff = current.complexity_score - previous.complexity_score;
-    const centroidChanged = current.hotspot_centroid !== previous.hotspot_centroid;
-    
-    return {
-      node_diff: nodeDiff,
-      edge_diff: edgeDiff,
-      complexity_diff: complexityDiff,
-      centroid_changed: centroidChanged,
-      current_centroid: current.hotspot_centroid,
-      previous_centroid: previous.hotspot_centroid
-    };
-  } catch(e) {
-    return null;
-  }
-}
-
-function generateCognitiveMirrorReport(projectId) {
-  try {
-    const now = new Date().toISOString();
-    
-    // 1. Engineering Personality
-    const totalViolations = db.prepare("SELECT COUNT(*) as cnt FROM session_behavior_log WHERE event_type = 'constitution_violation'").get()?.cnt || 0;
-    const totalReversals = db.prepare("SELECT COUNT(*) as cnt FROM session_behavior_log WHERE event_type = 'vaccine_dismissed'").get()?.cnt || 0;
-    const totalPerceives = db.prepare("SELECT COUNT(*) as cnt FROM session_behavior_log WHERE event_type = 'perceive'").get()?.cnt || 0;
-    
-    let personality = "Iterative Builder";
-    if (totalReversals > totalViolations && totalReversals > 2) {
-      personality = "Skeptical Architect";
-    } else if (totalViolations > 3) {
-      personality = "Rapid Prototype Developer";
-    } else if (totalPerceives > 20) {
-      personality = "Reflective Analyst";
-    }
-    
-    // 2. Three Blind Spots
-    const bugs = db.prepare("SELECT bug_type, COUNT(*) as cnt FROM code_bugs WHERE project = ? GROUP BY bug_type ORDER BY cnt DESC LIMIT 3").all(projectId);
-    const blindSpots = bugs.map(b => `${b.bug_type || 'Syntax Errors'} (occurred ${b.cnt} times)`);
-    while (blindSpots.length < 3) {
-      blindSpots.push("No significant blind spots identified yet.");
-    }
-    
-    // 3. Danger Windows
-    const logs = db.prepare("SELECT timestamp FROM session_behavior_log WHERE event_type = 'constitution_violation' OR error_encountered IS NOT NULL").all();
-    const timeCounts = {};
-    logs.forEach(l => {
-      try {
-        const d = new Date(l.timestamp);
-        const day = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][d.getDay()];
-        const hour = d.getHours();
-        const key = `${day} ${hour}:00-${hour+1}:00`;
-        timeCounts[key] = (timeCounts[key] || 0) + 1;
-      } catch(e) {}
-    });
-    const dangerWindows = Object.entries(timeCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(entry => `${entry[0]} (frequency: ${entry[1]} errors)`);
-    while (dangerWindows.length < 3) {
-      dangerWindows.push("Insufficient error history to map danger windows.");
-    }
-    
-    // 4. Moat Skills
-    const crystals = db.prepare("SELECT domain, knowledge_content, times_applied FROM specific_knowledge_crystals ORDER BY times_applied DESC LIMIT 3").all();
-    const moatSkills = crystals.map(c => `${c.domain}: ${c.knowledge_content.substring(0, 50)}... (applied ${c.times_applied} times)`);
-    while (moatSkills.length < 3) {
-      moatSkills.push("Developing custom domain knowledge base.");
-    }
-    
-    // 5. Mirror Score
-    const autopsies = db.prepare("SELECT content FROM episodic_memories WHERE event_type = 'session_autopsy' AND project = ?").all(projectId);
-    let sumBis = 0;
-    autopsies.forEach(a => {
-      const match = a.content.match(/BIS:\s*(\d+)/);
-      if (match) sumBis += parseInt(match[1]);
-    });
-    const avgBis = autopsies.length > 0 ? sumBis / autopsies.length : 85;
-    const mirrorScore = Math.min(100, Math.max(0, avgBis));
-    
-    const report = {
-      personality,
-      blind_spots: blindSpots,
-      danger_windows: dangerWindows,
-      moat_skills: moatSkills,
-      mirror_score: Math.round(mirrorScore),
-      generated_at: now
-    };
-    
-    const memContent = `COGNITIVE MIRROR REPORT\nScore: ${report.mirror_score}/100 | Personality: ${personality}\nBlind Spots:\n- ${blindSpots.join('\n- ')}\nDanger Windows:\n- ${dangerWindows.join('\n- ')}\nMoat Skills:\n- ${moatSkills.join('\n- ')}`;
-    const memId = generateId(memContent, projectId);
-    
-    db.prepare(`
-      INSERT INTO episodic_memories (id, content, event_type, project, emotional_valence, emotional_arousal, salience, strength, created_at, updated_at)
-      VALUES (?, ?, 'cognitive_mirror_report', ?, 0.0, 0.0, 0.95, 1.0, ?, ?)
-    `).run(memId, memContent, projectId, now, now);
-    
-    return report;
-  } catch(e) {
-    console.error("[generateCognitiveMirrorReport ERROR]", e);
-    return null;
-  }
-}
-
-function runMemoryInheritance(projectId) {
-  try {
-    const checkInherited = db.prepare("SELECT COUNT(*) as cnt FROM episodic_memories WHERE project = ? AND inherited = 1").get(projectId)?.cnt || 0;
-    if (checkInherited > 0) return { status: "already_inherited" };
-
-    const projects = db.prepare("SELECT DISTINCT project FROM episodic_memories WHERE project != ?").all(projectId).map(p => p.project);
-    if (projects.length === 0) return { status: "no_donors_available" };
-
-    const currentNodeCount = db.prepare("SELECT COUNT(*) as cnt FROM code_nodes WHERE project = ?").get(projectId)?.cnt || 0;
-    const currentEdgeCount = db.prepare("SELECT COUNT(*) as cnt FROM code_edges JOIN code_nodes ON code_edges.source_id = code_nodes.id WHERE code_nodes.project = ?").get(projectId)?.cnt || 0;
-    const currentDensity = currentNodeCount > 0 ? currentEdgeCount / currentNodeCount : 0;
-    
-    const currentRows = db.prepare("SELECT filepath FROM code_nodes WHERE project = ?").all(projectId);
-    const currentExts = {};
-    currentRows.forEach(r => {
-      const ext = r.filepath.split('.').pop();
-      currentExts[ext] = (currentExts[ext] || 0) + 1;
-    });
-    
-    const currentDna = { extensions: currentExts, density: currentDensity, nodeCount: currentNodeCount };
-
-    let bestDonor = null;
-    let bestScore = -1;
-
-    for (const proj of projects) {
-      const pNodeCount = db.prepare("SELECT COUNT(*) as cnt FROM code_nodes WHERE project = ?").get(proj)?.cnt || 0;
-      const pEdgeCount = db.prepare("SELECT COUNT(*) as cnt FROM code_edges JOIN code_nodes ON code_edges.source_id = code_nodes.id WHERE code_nodes.project = ?").get(proj)?.cnt || 0;
-      const pDensity = pNodeCount > 0 ? pEdgeCount / pNodeCount : 0;
-      
-      const pRows = db.prepare("SELECT filepath FROM code_nodes WHERE project = ?").all(proj);
-      const pExts = {};
-      pRows.forEach(r => {
-        const ext = r.filepath.split('.').pop();
-        pExts[ext] = (pExts[ext] || 0) + 1;
-      });
-      
-      const pDna = { extensions: pExts, density: pDensity, nodeCount: pNodeCount };
-
-      const allExts = new Set([...Object.keys(currentDna.extensions), ...Object.keys(pDna.extensions)]);
-      let dot = 0, norm1 = 0, norm2 = 0;
-      allExts.forEach(ext => {
-        const v1 = currentDna.extensions[ext] || 0;
-        const v2 = pDna.extensions[ext] || 0;
-        dot += v1 * v2;
-        norm1 += v1 * v1;
-        norm2 += v2 * v2;
-      });
-      const densitySim = 1 / (1 + Math.abs(currentDna.density - pDna.density));
-      const extSim = norm1 > 0 && norm2 > 0 ? dot / (Math.sqrt(norm1) * Math.sqrt(norm2)) : 0;
-      const score = (extSim * 0.7) + (densitySim * 0.3);
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestDonor = proj;
-      }
-    }
-
-    if (!bestDonor || bestScore < 0.2) {
-      let maxMems = -1;
-      for (const proj of projects) {
-        const cnt = db.prepare("SELECT COUNT(*) as cnt FROM episodic_memories WHERE project = ?").get(proj)?.cnt || 0;
-        if (cnt > maxMems) {
-          maxMems = cnt;
-          bestDonor = proj;
-        }
-      }
-      bestScore = 0.5;
-    }
-
-    if (!bestDonor) return { status: "no_donor_found" };
-
-    const now = new Date().toISOString();
-    let transplantedCount = 0;
-
-    const vaccines = db.prepare(`
-      SELECT * FROM memory_programs 
-      WHERE project = ? 
-      ORDER BY (true_positive_count * 1.0) / (true_positive_count + false_positive_count + 1) DESC 
-      LIMIT 5
-    `).all(bestDonor);
-    vaccines.forEach(v => {
-      try {
-        db.prepare(`
-          INSERT INTO memory_programs (id, name, description, program_code, compiled_from_memory_ids, execution_count, true_positive_count, false_positive_count, precision_score, project, inherited, donor_project, transplant_confidence, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0.5, ?, 1, ?, ?, ?, ?)
-        `).run(v.id + '_inherited_' + projectId, v.name, v.description, v.program_code, v.compiled_from_memory_ids, projectId, bestDonor, bestScore, now, now);
-        transplantedCount++;
-      } catch(e) {}
-    });
-
-    const rules = db.prepare(`
-      SELECT * FROM project_constitution 
-      WHERE donor_project = ? OR (donor_project IS NULL AND inherited = 0)
-      LIMIT 3
-    `).all(bestDonor);
-    const maxArticleRow = db.prepare("SELECT MAX(article_number) as max_art FROM project_constitution").get();
-    let currentMaxArticle = maxArticleRow ? (maxArticleRow.max_art || 0) : 0;
-    rules.forEach(r => {
-      try {
-        currentMaxArticle++;
-        db.prepare(`
-          INSERT INTO project_constitution (id, article_number, title, rule_definition, is_mandatory, inherited, donor_project, transplant_confidence, created_at)
-          VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
-        `).run(r.id + '_inherited_' + projectId, currentMaxArticle, r.title, r.rule_definition, r.is_mandatory, bestDonor, bestScore, now);
-        transplantedCount++;
-      } catch(e) {}
-    });
-
-    const researchMems = db.prepare(`
-      SELECT * FROM episodic_memories 
-      WHERE project = ? AND event_type = 'research' 
-      ORDER BY salience DESC, access_count DESC 
-      LIMIT 3
-    `).all(bestDonor);
-    researchMems.forEach(m => {
-      try {
-        db.prepare(`
-          INSERT INTO episodic_memories (id, content, event_type, project, location, emotional_valence, emotional_arousal, salience, strength, developmental_stage, access_count, source, is_active, inherited, donor_project, transplant_confidence, created_at, updated_at)
-          VALUES (?, ?, 'research', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 1, ?, ?, ?, ?)
-        `).run(m.id + '_inherited_' + projectId, m.content, projectId, m.location, m.emotional_valence, m.emotional_arousal, m.salience, m.strength, m.developmental_stage, m.source, m.is_active, bestDonor, bestScore, now, now);
-        transplantedCount++;
-      } catch(e) {}
-    });
-
-    return { status: "inherited_successfully", donor: bestDonor, confidence: bestScore, transplanted: transplantedCount };
-  } catch(e) {
-    console.error("[runMemoryInheritance ERROR]", e);
-    return { status: "error", message: e.message };
-  }
-}
-
-function runPostHocQueryFitnessVerification(projectId) {
-  try {
-    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString();
-    const memories = db.prepare(`
-      SELECT id, template_id, project, created_at 
-      FROM episodic_memories 
-      WHERE template_id IS NOT NULL 
-        AND created_at < ? 
-        AND event_type = 'research'
-    `).all(threeDaysAgo);
-
-    for (const mem of memories) {
-      const trail = db.prepare(`
-        SELECT outcome FROM pheromone_trails 
-        WHERE project = ? AND created_at > ?
-        ORDER BY created_at DESC LIMIT 1
-      `).get(mem.project, mem.created_at);
-
-      if (trail && (trail.outcome === 'success' || trail.outcome === 'failure')) {
-        const delta = trail.outcome === 'success' ? 0.05 : -0.05;
-        db.prepare(`
-          UPDATE research_query_fitness 
-          SET avg_result_quality = MIN(1.0, MAX(0.0, avg_result_quality + ?)) 
-          WHERE query_template = ?
-        `).run(delta, mem.template_id);
-      }
-    }
-
-    db.prepare(`
-      INSERT INTO fossil_record (entity_type, original_data, reason, timestamp)
-      SELECT 'query_template', query_template, 'Deprecated due to low fitness score: ' || avg_result_quality, ?
-      FROM research_query_fitness
-      WHERE avg_result_quality < 0.2 AND usage_count > 5
-    `).run(new Date().toISOString());
-
-    db.prepare(`
-      DELETE FROM research_query_fitness
-      WHERE avg_result_quality < 0.2 AND usage_count > 5
-    `).run();
-
-  } catch(e) {
-    console.error("[runPostHocQueryFitnessVerification ERROR]", e);
-  }
-}
-
-
-
-
-
-function storeCodexMemory(content, modality = "text", rawContent = null, linkedCodeNodes = [], projectId = "default") {
-  const id = generateId(content || "codex", modality);
-  const now = new Date().toISOString();
-  db.prepare(`
-    INSERT INTO codex_memories (id, memory_type, raw_content, extracted_text, linked_code_nodes, project, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, modality, rawContent, content, JSON.stringify(linkedCodeNodes), projectId, now);
-  
-  db.prepare(`
-    INSERT INTO episodic_memories (id, content, event_type, project, salience, strength, source, created_at, updated_at)
-    VALUES (?, ?, 'insight', ?, 0.8, 1.0, 'codex', ?, ?)
-  `).run(id, `[CODEX ${modality.toUpperCase()}] ${content}`, projectId, now, now);
-  
-  return id;
-}
-
-function callPythonTool(toolName, args) {
-  try {
-    const input = JSON.stringify({ tool: toolName, arguments: args });
-    const runnerPath = path.join(__dirname, "owl_python_runner.py");
-    const result = execSync(`python "${runnerPath}"`, {
-      input: input,
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "ignore"]
-    });
-    return JSON.parse(result);
-  } catch (err) {
-    return { error: err.message };
-  }
-}
+  db.exec("ALTER TABLE episodic_memories ADD COLUMN original_content TEXT;");
+} catch(e) { /* Ignore if exists */ }
 
 
 function calculateSimilarity(a, b) {
@@ -1420,7 +520,6 @@ function calculateSimilarity(a, b) {
 }
 
 function detectEmotionalSalience(t) {
-  if (!t || typeof t !== "string") return { valence: 0, arousal: 0, salience: 0 };
   const l = t.toLowerCase(); let v = 0, a = 0;
   for (const w of ["love","great","excellent","amazing","perfect","awesome","happy"]) { if (l.includes(w)) { v += 0.2; a += 0.15; } }
   for (const w of ["hate","terrible","horrible","broken","bug","error","crash","fail"]) { if (l.includes(w)) { v -= 0.3; a += 0.3; } }
@@ -1572,87 +671,6 @@ function calculateRelativisticGravity(activeNodeId, projectId) {
   return ranked.sort(function(a,b){return b.gravity - a.gravity}).slice(0, 10);
 }
 
-function calculateRelativisticGravityWithObserver(activeNodeId, projectId, observerType = null, observerContext = null) {
-  var memories = db.prepare("SELECT * FROM episodic_memories WHERE project = ? AND is_active = 1").all(projectId);
-  var ranked = [];
-  var now = Date.now();
-  var errorCount = db.prepare("SELECT COUNT(*) as cnt FROM episodic_memories WHERE project = ? AND event_type = 'error'").get(projectId);
-  var errorMass = errorCount ? Math.min(errorCount.cnt / 50, 1.0) : 0;
-
-  // Extract filenames from observer context if available
-  let observerFiles = [];
-  if (observerType && observerContext) {
-    let matches = [];
-    if (observerType === "open_pr_diff") {
-      matches = observerContext.match(/(?:[ab]\/)?([a-zA-Z0-9_\-\/]+\.[a-zA-Z0-9]+)/g) || [];
-    } else {
-      matches = observerContext.match(/([a-zA-Z0-9_\-\/]+\.(?:py|js|ts|tsx|jsx|json|yaml|sql|md|txt))/g) || [];
-    }
-    observerFiles = matches.map(m => {
-      const parts = m.replace(/\\/g, "/").split("/");
-      return parts[parts.length - 1];
-    });
-  }
-
-  for (var mem of memories) {
-    var minDistance = 4;
-    var curvatureObserver = 0.0;
-    
-    // Check observer file links first
-    if (observerFiles.length > 0) {
-      var links = db.prepare("SELECT code_node_id FROM memory_code_links WHERE memory_id = ?").all(mem.id);
-      for (var link of links) {
-        const linkBase = link.code_node_id.replace(/\\/g, "/").split("/").pop().split("::")[0];
-        if (observerFiles.includes(linkBase)) {
-          minDistance = 0;
-          curvatureObserver = 1.0;
-          break;
-        }
-      }
-    }
-
-    if (activeNodeId && minDistance > 0) {
-      var links = db.prepare("SELECT code_node_id FROM memory_code_links WHERE memory_id = ?").all(mem.id);
-      for (var link of links) {
-        if (link.code_node_id === activeNodeId) { minDistance = 0; break; }
-        var dist = getCodePathDistance(activeNodeId, link.code_node_id);
-        if (dist < minDistance) minDistance = dist;
-      }
-    }
-    
-    var ageHours = (now - new Date(mem.created_at).getTime()) / (3600 * 1000);
-    var emotionalWeight = 1.0 + Math.abs(mem.emotional_valence) * 0.5 + mem.emotional_arousal * 0.5;
-    var curvatureSpacetime = 1.0 / (Math.pow(minDistance + 1, 2));
-    var curvatureEmotional = emotionalWeight * 0.3;
-    var curvatureSalience = mem.salience * 0.3;
-    var curvatureError = errorMass * 0.2;
-    var curvatureRecency = 1.0 / (Math.pow(ageHours + 1, 0.15));
-    var timeDilationFactor = 1.0;
-    if (minDistance <= 1 && ageHours < 24) {
-      timeDilationFactor = 1.0 + (1.0 / (ageHours + 1)) * 0.5;
-    }
-    var gravity = (curvatureSpacetime * mem.salience + curvatureEmotional * 0.20 + curvatureSalience * 0.20 + curvatureError * 0.10 + curvatureRecency * 0.10 + curvatureObserver * 0.40) * timeDilationFactor;
-    ranked.push({ 
-      id: mem.id, 
-      content: mem.content, 
-      event_type: mem.event_type, 
-      gravity: Math.round(gravity * 1000) / 1000, 
-      spatial_distance: minDistance, 
-      curvature_tensor: { 
-        spacetime: Math.round(curvatureSpacetime * 1000) / 1000, 
-        emotional: Math.round(curvatureEmotional * 1000) / 1000, 
-        salience: Math.round(curvatureSalience * 1000) / 1000, 
-        errorMass: Math.round(curvatureError * 1000) / 1000, 
-        recency: Math.round(curvatureRecency * 1000) / 1000,
-        observerWarp: Math.round(curvatureObserver * 1000) / 1000
-      }, 
-      time_dilation_factor: Math.round(timeDilationFactor * 1000) / 1000, 
-      created_at: mem.created_at 
-    });
-  }
-  return ranked.sort(function(a,b){return b.gravity - a.gravity}).slice(0, 10);
-}
-
 function getCodePathDistance(fromNode, toNode) {
   if (fromNode === toNode) return 0;
   const visited = new Set();
@@ -1671,17 +689,8 @@ function getCodePathDistance(fromNode, toNode) {
   return 4;
 }
 
-function getSynapticConstant(name, defaultValue) {
-  try {
-    const row = db.prepare("SELECT value FROM synaptic_constants WHERE name = ?").get(name);
-    return row ? row.value : defaultValue;
-  } catch (e) {
-    return defaultValue;
-  }
-}
-
-function propagateTeslaResonance(activeNodeId, steps = 15, stiffnessOverride = null, dampingOverride = null, skipDbWrite = false, projectId = 'default') {
-  if (!activeNodeId || (Array.isArray(activeNodeId) && activeNodeId.length === 0)) return [];
+function propagateTeslaResonance(activeNodeId, steps = 15) {
+  if (!activeNodeId) return [];
 
   // Fetch all nodes in the codebase
   const allNodes = db.prepare("SELECT id FROM code_nodes").all().map(n => n.id);
@@ -1696,16 +705,8 @@ function propagateTeslaResonance(activeNodeId, steps = 15, stiffnessOverride = n
   }
 
   // Inject initial impulse (focus event) at activeNodeId
-  if (Array.isArray(activeNodeId)) {
-    for (const node of activeNodeId) {
-      if (u[node] !== undefined) {
-        u[node] = 10.0;
-      }
-    }
-  } else if (activeNodeId) {
-    if (u[activeNodeId] !== undefined) {
-      u[activeNodeId] = 10.0;
-    }
+  if (u[activeNodeId] !== undefined) {
+    u[activeNodeId] = 10.0;
   }
 
   // Fetch weights of code_edges & synaptic_weights
@@ -1725,8 +726,8 @@ function propagateTeslaResonance(activeNodeId, steps = 15, stiffnessOverride = n
 
   // Wave simulation constants
   const dt = 0.15;
-  const stiffness = stiffnessOverride !== null ? stiffnessOverride : getSynapticConstant(`${projectId}:resonance_stiffness`, getSynapticConstant('resonance_stiffness', 0.6));
-  const damping = dampingOverride !== null ? dampingOverride : getSynapticConstant(`${projectId}:resonance_damping`, getSynapticConstant('resonance_damping', 0.2));
+  const damping = 0.2; // Energy dissipation
+  const stiffness = 0.6; // Coupling strength
 
   // Solve spring-mass-damper wave propagation
   for (let step = 0; step < steps; step++) {
@@ -1746,17 +747,15 @@ function propagateTeslaResonance(activeNodeId, steps = 15, stiffnessOverride = n
   }
 
   // Store final absolute displacements as the activation levels
-  if (!skipDbWrite) {
-    const nowTime = Date.now();
-    for (const id of allNodes) {
-      const act = Math.max(0, Math.abs(u[id]));
-      if (act > 0.01) {
-        db.prepare(`
-          INSERT INTO code_node_activation (node_id, activation, last_updated)
-          VALUES (?, ?, ?)
-          ON CONFLICT(node_id) DO UPDATE SET activation = excluded.activation, last_updated = excluded.last_updated
-        `).run(id, act, nowTime);
-      }
+  const nowTime = Date.now();
+  for (const id of allNodes) {
+    const act = Math.max(0, Math.abs(u[id]));
+    if (act > 0.01) {
+      db.prepare(`
+        INSERT INTO code_node_activation (node_id, activation, last_updated)
+        VALUES (?, ?, ?)
+        ON CONFLICT(node_id) DO UPDATE SET activation = excluded.activation, last_updated = excluded.last_updated
+      `).run(id, act, nowTime);
     }
   }
 
@@ -1843,15 +842,6 @@ async function harvestErrorMusk(errorMessage, command = "test", projectId = "def
   db.prepare("INSERT OR IGNORE INTO code_bugs (id, bug_type, description, file_path, line_number, project, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .run(generateId(errorMessage, "bug"), "runtime_error", errorMessage.slice(0, 200), filepath, lineNumber, projectId, now);
 
-  try {
-    const lastSession = db.prepare("SELECT id FROM session_states WHERE project = ? ORDER BY ended_at DESC LIMIT 1").get(projectId);
-    const currentSessionId = lastSession ? lastSession.id : 'default_session';
-    db.prepare(`
-      INSERT INTO session_behavior_log (id, session_id, event_type, file_touched, error_encountered, timestamp)
-      VALUES (?, ?, 'error', ?, ?, ?)
-    `).run(generateId('error_' + now, 'behavior'), currentSessionId, filepath, errorMessage.slice(0, 200), now);
-  } catch(e) {}
-
   return { status: "success", memory_id: memId, codeNodeId, surpriseScore };
 }
 
@@ -1878,19 +868,7 @@ function simulateMemoryPrograms(codeSnippet, projectId = "default") {
           message: sandbox.result.message || prog.description,
           program_id: prog.id
         });
-        
-        // Log to session_behavior_log
-        try {
-          const lastSession = db.prepare("SELECT id FROM session_states WHERE project = ? ORDER BY ended_at DESC LIMIT 1").get(projectId);
-          const currentSessionId = lastSession ? lastSession.id : 'default_session';
-          const nowStr = new Date().toISOString();
-          db.prepare(`
-            INSERT INTO session_behavior_log (id, session_id, event_type, vaccine_fired, timestamp)
-            VALUES (?, ?, 'vaccine_fired', ?, ?)
-          `).run(generateId('fire_' + prog.id + nowStr, 'behavior'), currentSessionId, prog.id, nowStr);
-        } catch(e) {}
-
-        db.prepare("UPDATE memory_programs SET execution_count = execution_count + 1 WHERE id = ?").run(prog.id);
+        db.prepare("UPDATE memory_programs SET true_positive_count = true_positive_count + 1, execution_count = execution_count + 1 WHERE id = ?").run(prog.id);
       } else {
         db.prepare("UPDATE memory_programs SET execution_count = execution_count + 1 WHERE id = ?").run(prog.id);
       }
@@ -2402,272 +1380,10 @@ function distillateNeocortex(projectId) {
 // Innovation E: Memory Fitness Scoring (Darwinian selection)
 // Runs after dream cycle. Memories with low fitness get archived.
 // ═══════════════════════════════════════════════════════════════
-// Helper for vaccine outcomes processing
-function processVaccineOutcomes(projectId) {
-  try {
-    const unprocessed = db.prepare("SELECT * FROM session_behavior_log WHERE event_type = 'vaccine_fired' AND processed = 0").all();
-    for (const log of unprocessed) {
-      const dismissed = db.prepare("SELECT 1 FROM session_behavior_log WHERE session_id = ? AND event_type = 'vaccine_dismissed' AND vaccine_fired = ?").get(log.session_id, log.vaccine_fired);
-      const sessionFailure = db.prepare("SELECT 1 FROM pheromone_trails WHERE project = ? AND outcome = 'failure' AND created_at >= ?").get(projectId, log.timestamp);
-      
-      if (dismissed || sessionFailure) {
-        db.prepare("UPDATE memory_programs SET false_positive_count = false_positive_count + 1 WHERE id = ?").run(log.vaccine_fired);
-      } else {
-        db.prepare("UPDATE memory_programs SET true_positive_count = true_positive_count + 1 WHERE id = ?").run(log.vaccine_fired);
-      }
-      db.prepare("UPDATE session_behavior_log SET processed = 1 WHERE id = ?").run(log.id);
-    }
-  } catch (e) {
-    console.error("[OWL Memory] Failed to process vaccine outcomes:", e.message);
-  }
-}
-
-// Helper to optimize resonance stiffness & damping per project
-function optimizeTeslaResonance(projectId = "default") {
-  try {
-    let successfulTrails = db.prepare(`
-      SELECT DISTINCT source_memory_id 
-      FROM pheromone_trails 
-      WHERE project = ? AND outcome = 'success'
-    `).all(projectId).map(t => t.source_memory_id);
-
-    if (successfulTrails.length === 0) {
-      successfulTrails = db.prepare(`
-        SELECT id FROM episodic_memories 
-        WHERE project = ? AND is_active = 1 
-        ORDER BY strength DESC LIMIT 10
-      `).all(projectId).map(m => m.id);
-    }
-
-    if (successfulTrails.length === 0) {
-      return { status: "no_memories_to_optimize" };
-    }
-
-    const allLinkedNodes = new Set();
-    for (const memId of successfulTrails) {
-      const links = db.prepare("SELECT code_node_id FROM memory_code_links WHERE memory_id = ?").all(memId);
-      links.forEach(l => allLinkedNodes.add(l.code_node_id));
-    }
-    let nodeList = Array.from(allLinkedNodes);
-
-    if (nodeList.length === 0) {
-      const nodes = db.prepare("SELECT id FROM code_nodes WHERE project = ? LIMIT 10").all(projectId);
-      nodes.forEach(n => nodeList.push(n.id));
-    }
-
-    if (nodeList.length === 0) {
-      return { status: "no_nodes_to_simulate" };
-    }
-
-    const grid = [
-      { stiffness: 0.3, damping: 0.1 }, { stiffness: 0.3, damping: 0.2 }, { stiffness: 0.3, damping: 0.4 },
-      { stiffness: 0.6, damping: 0.1 }, { stiffness: 0.6, damping: 0.2 }, { stiffness: 0.6, damping: 0.4 },
-      { stiffness: 0.9, damping: 0.1 }, { stiffness: 0.9, damping: 0.2 }, { stiffness: 0.9, damping: 0.4 }
-    ];
-
-    let bestConfig = grid[4];
-    let bestScore = -1;
-    const sampleNodes = nodeList.slice(0, 5);
-
-    for (const config of grid) {
-      let score = 0;
-      for (const startNode of sampleNodes) {
-        const resonantMems = propagateTeslaResonance(startNode, 15, config.stiffness, config.damping, true, projectId);
-        const top10 = resonantMems.sort((a, b) => b.activation - a.activation).slice(0, 10);
-        const count = top10.filter(rm => successfulTrails.includes(rm.id)).length;
-        score += count;
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        bestConfig = config;
-      }
-    }
-
-    const lastScore = getSynapticConstant(`${projectId}:resonance_last_score`, -1);
-    const stiffnessDir = getSynapticConstant(`${projectId}:resonance_stiffness_dir`, 1);
-    const dampingDir = getSynapticConstant(`${projectId}:resonance_damping_dir`, 1);
-
-    let finalStiffness = bestConfig.stiffness;
-    let finalDamping = bestConfig.damping;
-    let nextStiffnessDir = stiffnessDir;
-    let nextDampingDir = dampingDir;
-
-    if (bestScore > lastScore) {
-      const pertS = stiffnessDir * 0.05;
-      const pertD = dampingDir * 0.03;
-      finalStiffness = Math.max(0.1, Math.min(2.0, finalStiffness + pertS));
-      finalDamping = Math.max(0.05, Math.min(1.0, finalDamping + pertD));
-    } else {
-      nextStiffnessDir = -stiffnessDir;
-      nextDampingDir = -dampingDir;
-      const pertS = nextStiffnessDir * 0.05;
-      const pertD = nextDampingDir * 0.03;
-      finalStiffness = Math.max(0.1, Math.min(2.0, finalStiffness + pertS));
-      finalDamping = Math.max(0.05, Math.min(1.0, finalDamping + pertD));
-    }
-
-    db.prepare("INSERT OR REPLACE INTO synaptic_constants (name, value) VALUES (?, ?)")
-      .run(`${projectId}:resonance_stiffness`, finalStiffness);
-    db.prepare("INSERT OR REPLACE INTO synaptic_constants (name, value) VALUES (?, ?)")
-      .run(`${projectId}:resonance_damping`, finalDamping);
-    db.prepare("INSERT OR REPLACE INTO synaptic_constants (name, value) VALUES (?, ?)")
-      .run(`${projectId}:resonance_last_score`, bestScore);
-    db.prepare("INSERT OR REPLACE INTO synaptic_constants (name, value) VALUES (?, ?)")
-      .run(`${projectId}:resonance_stiffness_dir`, nextStiffnessDir);
-    db.prepare("INSERT OR REPLACE INTO synaptic_constants (name, value) VALUES (?, ?)")
-      .run(`${projectId}:resonance_damping_dir`, nextDampingDir);
-
-    return {
-      status: "optimized",
-      grid_best: bestConfig,
-      bayesian_final: { stiffness: finalStiffness, damping: finalDamping },
-      score: bestScore
-    };
-  } catch (err) {
-    console.error("[OWL Tesla Resonance Optimization Error]", err);
-    return { error: err.message };
-  }
-}
-
-function runCausalInferenceEngine(projectId = "default") {
-  const now = new Date().toISOString();
-  try {
-    // Verify pending predictions first
-    verifyCausalPredictions(projectId);
-
-    // Scan session behavior log for trigger pattern
-    const touchedFiles = db.prepare(`
-      SELECT DISTINCT file_touched 
-      FROM session_behavior_log 
-      WHERE file_touched IS NOT NULL AND file_touched != 'unknown_file'
-    `).all();
-
-    let patternsFound = 0;
-    for (const f of touchedFiles) {
-      const file = f.file_touched;
-      
-      const sessions = db.prepare(`
-        SELECT DISTINCT session_id 
-        FROM session_behavior_log 
-        WHERE file_touched = ?
-      `).all(file);
-
-      if (sessions.length < 3) continue;
-
-      let errorSessions = 0;
-      for (const s of sessions) {
-        const hasError = db.prepare(`
-          SELECT 1 FROM session_behavior_log 
-          WHERE session_id = ? AND (event_type = 'error' OR event_type = 'cargo_cult' OR constitution_violated = 1)
-          LIMIT 1
-        `).get(s.session_id);
-
-        const hasBug = db.prepare(`
-          SELECT 1 FROM code_bugs 
-          WHERE file_path = ? AND project = ? AND created_at >= (
-            SELECT MIN(timestamp) FROM session_behavior_log WHERE session_id = ? AND file_touched = ?
-          ) LIMIT 1
-        `).get(file, projectId, s.session_id, file);
-
-        if (hasError || hasBug) {
-          errorSessions++;
-        }
-      }
-
-      const completionRate = errorSessions / sessions.length;
-      if (completionRate >= 0.70) {
-        const predId = generateId(`causal_${file}`, "prediction");
-        const triggerPattern = `editing ${file}`;
-        const predictedEvent = `crash or logic bug in ${file}`;
-        const verifyAt = new Date(Date.now() + 2 * 3600 * 1000).toISOString();
-
-        db.prepare(`
-          INSERT OR REPLACE INTO causal_predictions 
-            (id, trigger_pattern, predicted_event, predicted_file, confidence, predicted_at, verify_at, outcome)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-        `).run(predId, triggerPattern, predictedEvent, file, completionRate, now, verifyAt);
-
-        patternsFound++;
-      }
-    }
-    return { status: "success", patterns_detected: patternsFound };
-  } catch(e) {
-    console.error("[OWL Causal Inference Engine Error]", e);
-    return { status: "error", error: e.message };
-  }
-}
-
-function verifyCausalPredictions(projectId = "default") {
-  const now = new Date().toISOString();
-  try {
-    const pending = db.prepare(`
-      SELECT * FROM causal_predictions 
-      WHERE outcome = 'pending' AND verify_at <= ?
-    `).all(now);
-
-    for (const pred of pending) {
-      const bug = db.prepare(`
-        SELECT 1 FROM code_bugs 
-        WHERE file_path = ? AND project = ? AND created_at BETWEEN ? AND ?
-        LIMIT 1
-      `).get(pred.predicted_file, projectId, pred.predicted_at, pred.verify_at);
-
-      const error = db.prepare(`
-        SELECT 1 FROM session_behavior_log 
-        WHERE file_touched = ? AND event_type = 'error' AND timestamp BETWEEN ? AND ?
-        LIMIT 1
-      `).get(pred.predicted_file, pred.predicted_at, pred.verify_at);
-
-      if (bug || error) {
-        const newConfidence = Math.min(1.0, pred.confidence + 0.1);
-        db.prepare(`
-          UPDATE causal_predictions 
-          SET outcome = 'confirmed', confidence = ?, verified_at = ? 
-          WHERE id = ?
-        `).run(newConfidence, now, pred.id);
-      } else {
-        const newConfidence = pred.confidence - 0.15;
-        if (newConfidence < 0.25) {
-          db.prepare(`DELETE FROM causal_predictions WHERE id = ?`).run(pred.id);
-        } else {
-          db.prepare(`
-            UPDATE causal_predictions 
-            SET outcome = 'decayed', confidence = ?, verified_at = ? 
-            WHERE id = ?
-          `).run(newConfidence, now, pred.id);
-        }
-      }
-    }
-  } catch(e) {
-    console.error("[OWL Prediction Verification Error]", e);
-  }
-}
-
 function applyMemoryFitnessSelection(projectId) {
   try {
-    // 1. Process vaccine outcomes from Behavior Log
-    processVaccineOutcomes(projectId);
-
-    // 2. Evaluate vaccine precision and fossilize bad ones
-    const progs = db.prepare("SELECT * FROM memory_programs WHERE project = ?").all(projectId);
-    for (const prog of progs) {
-      const tp = prog.true_positive_count || 0;
-      const fp = prog.false_positive_count || 0;
-      const total = tp + fp;
-      const precision = total > 0 ? (tp / total) : 0.5;
-      db.prepare("UPDATE memory_programs SET precision_score = ? WHERE id = ?").run(precision, prog.id);
-      
-      if (precision < 0.25 && total >= 3) {
-        const now = new Date().toISOString();
-        db.prepare("DELETE FROM memory_programs WHERE id = ?").run(prog.id);
-        db.prepare("INSERT OR IGNORE INTO fossil_record (id, original_content, final_fitness, extinction_date, reason) VALUES (?, ?, ?, ?, ?)")
-          .run(prog.id, JSON.stringify({ name: prog.name, description: prog.description, program_code: prog.program_code }), precision, now, 'low_vaccine_precision');
-      }
-    }
-
-    // 3. Process memory fitness
     const mems = db.prepare(`
-      SELECT em.id, em.strength, em.content, em.fitness_score, em.access_count, em.created_at,
+      SELECT em.id, em.strength, em.content,
              COALESCE(COUNT(mcl.code_node_id), 0) as link_count
       FROM episodic_memories em
       LEFT JOIN memory_code_links mcl ON mcl.memory_id = em.id
@@ -2677,21 +1393,19 @@ function applyMemoryFitnessSelection(projectId) {
 
     let archived = 0, strengthened = 0;
     const now = new Date().toISOString();
-    const nowTime = Date.now();
 
     for (const m of mems) {
+      // Fitness = strength (includes recall boosts) × link_density bonus
       const linkBonus = Math.min(m.link_count * 0.1, 0.5);
-      const fitness = (m.fitness_score || m.strength || 1.0) + linkBonus;
-      const ageDays = (nowTime - new Date(m.created_at).getTime()) / (24 * 3600 * 1000);
+      const fitness = (m.strength || 1.0) + linkBonus;
 
-      if (fitness < 0.15 && (m.access_count || 0) < 3 && ageDays > 14) {
+      if (fitness < 0.15) {
         // Archive — not delete. The pattern may still be valuable.
         db.prepare("UPDATE episodic_memories SET is_active = 0 WHERE id = ?").run(m.id);
-        db.prepare("INSERT OR IGNORE INTO fossil_record (id, original_content, final_fitness, extinction_date, reason) VALUES (?, ?, ?, ?, ?)")
-          .run(m.id, m.content, fitness, now, 'low_fitness');
         archived++;
       } else if (fitness > 2.5) {
-        db.prepare("UPDATE episodic_memories SET strength = MIN(strength + 0.05, 5.0), fitness_score = MIN(fitness_score + 0.05, 1.0) WHERE id = ?").run(m.id);
+        // High-fitness memory: candidate for semantic promotion (already handled in neocortex)
+        db.prepare("UPDATE episodic_memories SET strength = MIN(strength + 0.05, 5.0) WHERE id = ?").run(m.id);
         strengthened++;
       }
     }
@@ -2852,17 +1566,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           action: {
             type: "string",
-            enum: ["perceive", "record", "cogitate", "act", "dream", "end_session", "resurrect", "echo", "compile_vaccine", "oracle", "prophecy", "autopsy", "dismiss_vaccine"],
+            enum: ["perceive", "record", "cogitate", "act", "dream", "end_session", "resurrect", "echo", "compile_vaccine", "oracle"],
             description: "The cognitive action. Use 'end_session' before ending a session. Use 'compile_vaccine' to add executable bug checks. Use 'oracle' to fuse all signals into top 5 insights."
-          },
-          observer_type: {
-            type: "string",
-            enum: ["active_file", "failing_test", "open_pr_diff", "error_message", "stack_trace"],
-            description: "Optional relativistic observer type."
-          },
-          observer_context: {
-            type: "string",
-            description: "Optional context for the observer."
           },
           workspace_state: {
             type: "object",
@@ -2942,70 +1647,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       name: "index_codebase",
       description: "Register folders and AST files.",
       inputSchema: { type: "object", properties: { scan_path: { type: "string" }, project: { type: "string", default: "default" } }, required: ["scan_path"] }
-    },
-    {
-      name: "owl.nexus",
-      description: "The Single Unified Cognitive Router. Automatically decides whether to serve from memory cache, fetch a URL, trigger deep research, or search local project knowledge.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          context: { type: "string", description: "The query, goal, or question to resolve." },
-          action: { type: "string", enum: ["recall", "research", "fetch"], description: "Optional explicit override for routing." },
-          project: { type: "string", default: "default" }
-        },
-        required: ["context"]
-      }
-    },
-    {
-      name: "owl.remember",
-      description: "Store memory. Automatically routes to the cross-modal codex if the modality is not 'text' (e.g. image, voice), otherwise stores as a standard episodic memory.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          content: { type: "string", description: "The memory content or text extraction." },
-          modality: { type: "string", enum: ["text", "image", "voice_transcript", "sketch"], default: "text", description: "The sensory modality of the memory." },
-          project: { type: "string", default: "default" }
-        },
-        required: ["content"]
-      }
-    },
-    {
-      name: "owl.recall",
-      description: "Recall memories. Conducts semantic search over project databases and runs cross-project knowledge transfer checks.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          query: { type: "string", description: "The search query to match against memories." },
-          project: { type: "string", default: "default" }
-        },
-        required: ["query"]
-      }
-    },
-    {
-      name: "owl.research",
-      description: "Trigger deep research on a topic. Memory-gated to bypass redundant web calls if the answer is already cached.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          topic: { type: "string", description: "The research topic or question." },
-          depth: { type: "string", enum: ["quick", "medium", "deep"], default: "medium", description: "Research depth level." },
-          project: { type: "string", default: "default" },
-          active_file: { type: "string", description: "The file currently active in the editor (for auto-linking)." }
-        },
-        required: ["topic"]
-      }
-    },
-    {
-      name: "owl.fetch",
-      description: "Fetch web page content with automatic domain trust verification, semantic difference checks, and freshness decay.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          url: { type: "string", description: "The URL of the webpage to fetch." },
-          mode: { type: "string", enum: ["static", "stealth", "dynamic"], default: "static", description: "Web fetching mode." }
-        },
-        required: ["url"]
-      }
     }
   ]
 }));
@@ -3031,22 +1672,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     if (name === "recall") {
       const query = args.query;
-      // Exclude stale memories (stale_flag=1 means monitored page changed, knowledge may be outdated)
-      const mems = db.prepare("SELECT * FROM episodic_memories WHERE project = ? AND is_active = 1 AND (stale_flag IS NULL OR stale_flag = 0)").all(projectId);
+      const mems = db.prepare("SELECT * FROM episodic_memories WHERE project = ? AND is_active = 1").all(projectId);
       const matches = mems.map(m => ({
         id: m.id,
         content: m.content,
         score: Math.round(calculateSimilarity(query, m.content) * 100) / 100
       })).sort((a, b) => b.score - a.score).slice(0, 10);
-
-      // Trigger reconsolidation and Hebbian strengthening for the top retrieved memories
-      const emotional = detectEmotionalSalience(query);
-      for (const m of matches.slice(0, 3)) {
-        if (m.score > 0.35) {
-          reconsolidateMemory(m.id, emotional);
-        }
-      }
-
       // Log token usage for ledger
       const tokensInjected = Math.round(JSON.stringify(matches).length / 4);
       db.prepare(
@@ -3126,19 +1757,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const codeSnippet = state.code_snippet;
         const terminalOutput = state.terminal_output;
 
-        // Log to session_behavior_log
-        try {
-          const lastSession = db.prepare("SELECT id FROM session_states WHERE project = ? ORDER BY ended_at DESC LIMIT 1").get(projectId);
-          const currentSessionId = lastSession ? lastSession.id : 'default_session';
-          db.prepare(`
-            INSERT INTO session_behavior_log (id, session_id, event_type, file_touched, timestamp)
-            VALUES (?, ?, 'perceive', ?, ?)
-          `).run(generateId('perceive_' + now, 'behavior'), currentSessionId, activeFile || null, now);
-        } catch(e) {}
-
-        // Capture code topology snapshot
-        captureTopologySnapshot(projectId);
-
         let activeNodeId = null;
         if (activeFile) {
           activeNodeId = resolveActiveNode(activeFile, codeSnippet, projectId);
@@ -3155,67 +1773,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           await harvestErrorMusk(terminalOutput, "auto_intercept", projectId);
         }
 
-        const observerType = args.observer_type || null;
-        const observerContext = args.observer_context || null;
-
-        let observerFiles = [];
-        if (observerType && observerContext) {
-          let matches = [];
-          if (observerType === "open_pr_diff") {
-            matches = observerContext.match(/(?:[ab]\/)?([a-zA-Z0-9_\-\/]+\.[a-zA-Z0-9]+)/g) || [];
-          } else {
-            matches = observerContext.match(/([a-zA-Z0-9_\-\/]+\.(?:py|js|ts|tsx|jsx|json|yaml|sql|md|txt))/g) || [];
-          }
-          observerFiles = matches.map(m => {
-            const parts = m.replace(/\\/g, "/").split("/");
-            return parts[parts.length - 1];
-          });
-        }
-
-        let observerNodeIds = [];
-        if (activeNodeId) {
-          observerNodeIds.push(activeNodeId);
-        }
-        if (observerFiles.length > 0) {
-          for (const f of observerFiles) {
-            const rows = db.prepare("SELECT id FROM code_nodes WHERE filepath LIKE ?").all(`%${f}`);
-            rows.forEach(r => {
-              if (!observerNodeIds.includes(r.id)) {
-                observerNodeIds.push(r.id);
-              }
-            });
-          }
-        }
-
-        const gravityContext = calculateRelativisticGravityWithObserver(activeNodeId, projectId, observerType, observerContext);
-        const resonantContext = propagateTeslaResonance(observerNodeIds.length > 0 ? observerNodeIds : activeNodeId, 15, null, null, false, projectId);
-
-        // Log observer sessions
-        if (observerType) {
-          try {
-            const lastSession = db.prepare("SELECT id FROM session_states WHERE project = ? ORDER BY ended_at DESC LIMIT 1").get(projectId);
-            const currentSessionId = lastSession ? lastSession.id : 'default_session';
-            const topMemoriesStr = JSON.stringify(gravityContext.slice(0, 3).map(m => m.id));
-            db.prepare(`
-              INSERT INTO memory_observer_sessions (session_id, observer_type, observer_context, top_memories, resolution_time_ms, resolution_outcome)
-              VALUES (?, ?, ?, ?, ?, ?)
-            `).run(currentSessionId, observerType, observerContext || "", topMemoriesStr, null, "pending");
-          } catch(e) {}
-        }
-
-        // Check causal predictions for warnings
-        const causalWarnings = [];
-        try {
-          const activePreds = db.prepare("SELECT * FROM causal_predictions WHERE outcome = 'pending'").all();
-          for (const pred of activePreds) {
-            if (activeFile && activeFile.replace(/\\/g, "/").endsWith(pred.predicted_file.replace(/\\/g, "/"))) {
-              causalWarnings.push({
-                type: "causal_prediction",
-                message: `⚠️ PROPHETIC WARNING: Historically, editing ${pred.predicted_file} led to errors/bugs in ${(pred.confidence * 100).toFixed(0)}% of sessions. Proceed with caution.`
-              });
-            }
-          }
-        } catch(e) {}
+        const gravityContext = calculateRelativisticGravity(activeNodeId, projectId);
+        const resonantContext = propagateTeslaResonance(activeNodeId);
         const secretContradictions = checkContrarianSecrets(activeFile, codeSnippet, projectId);
         const dependencyAlerts = checkDependencyStewardship(activeFile);
         const healingMocks = calculateDaVinciHealing(activeNodeId);
@@ -3233,38 +1792,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         });
         if (daemonAlerts.length > 0) {
           db.prepare("UPDATE daemon_signals SET consumed = 1 WHERE consumed = 0").run();
-        }
-
-        // ═══ D3: Cross-Server Observer Propagation ═══
-        // Fetch only unconsumed cross_server_events (avoid full table scan as table grows)
-        const crossEvents = db.prepare(
-          "SELECT id, source_server, event_type, payload, target_servers, consumed_by, created_at FROM cross_server_events WHERE consumed_by NOT LIKE '%\"owl-memory\"%' ORDER BY id DESC LIMIT 50"
-        ).all();
-        const unconsumedCrossEvents = [];
-        for (const ev of crossEvents) {
-          let targetsList = [];
-          let consumedList = [];
-          try { targetsList = JSON.parse(ev.target_servers || "[]"); } catch(e) {}
-          try { consumedList = JSON.parse(ev.consumed_by || "[]"); } catch(e) {}
-          
-          if (consumedList.includes("owl-memory")) continue;
-          if (targetsList.length > 0 && !targetsList.includes("owl-memory")) continue;
-          
-          let parsedPayload = ev.payload;
-          try { parsedPayload = JSON.parse(ev.payload); } catch(e) {}
-          
-          unconsumedCrossEvents.push({
-            id: ev.id,
-            source: ev.source_server,
-            type: ev.event_type,
-            payload: parsedPayload,
-            created_at: ev.created_at
-          });
-          
-          consumedList.push("owl-memory");
-          db.prepare("UPDATE cross_server_events SET consumed_by = ? WHERE id = ?").run(
-            JSON.stringify(consumedList), ev.id
-          );
         }
 
         // ═══ Innovation 2: Cognitive Echo — suggested memories from perceive context ═══
@@ -3289,53 +1816,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         // Log token usage for ledger
-        const tokensInjected = JSON.stringify({ gravityContext, resonantContext, daemonAlerts, cross_server_events: unconsumedCrossEvents }).length / 4;
+        const tokensInjected = JSON.stringify({ gravityContext, resonantContext, daemonAlerts }).length / 4;
         db.prepare(
           "INSERT INTO token_ledger (project, tool_called, tokens_injected, tokens_saved_estimate, created_at) VALUES (?, 'nexus.perceive', ?, ?, ?)"
         ).run(projectId, Math.round(tokensInjected), Math.round(tokensInjected * 12), now);
-
-        let allThreats = secretContradictions.concat(dependencyAlerts);
-        if (causalWarnings && causalWarnings.length > 0) {
-          allThreats = allThreats.concat(causalWarnings);
-        }
-        const cargoCultWarning = runCargoCultDetector(activeFile, codeSnippet, projectId);
-        const constitutionalViolations = checkConstitutionalRules(codeSnippet, projectId);
-        const biorhythmStatus = getCognitiveBiorhythmStatus();
-
-        if (cargoCultWarning) {
-          allThreats.push(cargoCultWarning);
-        }
-        if (constitutionalViolations && constitutionalViolations.length > 0) {
-          allThreats = allThreats.concat(constitutionalViolations);
-        }
-        if (biorhythmStatus && biorhythmStatus.high_risk) {
-          allThreats.push({
-            type: "cognitive_biorhythm",
-            message: biorhythmStatus.message
-          });
-        }
 
         return {
           content: [{
             type: "text",
             text: JSON.stringify({
               a: activeNodeId,
-              active_node_id: activeNodeId,
               gravity_memories: gravityContext,
-              context_memories: gravityContext,
               resonant_memories: resonantContext,
-              resonance_memories: resonantContext,
-              tw: allThreats,
-              threat_warnings: allThreats,
+              tw: secretContradictions.concat(dependencyAlerts),
               rh: hotspots,
-              refactoring_hotspots: hotspots,
               healing_suggestions: healingMocks,
-              self_healing_suggestions: healingMocks,
               dc: dilatedContext,
+              // Innovation 5: Daemon signals
               daemon_alerts: daemonAlerts,
+              // Innovation 2: Cognitive echo suggestions
               suggested_memories: suggestedMemories,
-              bug_vaccines: simulatedVaccines,
-              cross_server_events: unconsumedCrossEvents
+              // Innovation E: Simulated Vaccines
+              bug_vaccines: simulatedVaccines
             })
           }]
         };
@@ -3350,7 +1852,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const signals = [];
         
         // 1. Tesla Resonance
-        const resonant = activeNodeId ? propagateTeslaResonance(activeNodeId, 15, null, null, false, projectId) : [];
+        const resonant = activeNodeId ? propagateTeslaResonance(activeNodeId) : [];
         resonant.forEach(r => signals.push({ type: "resonance", score: r.voltage || 0.5, message: `Resonance with ${r.target}` }));
         
         // 2. Einstein Gravity
@@ -3397,243 +1899,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: "text", text: `Vaccine compiled: ${id} (${memData.vaccine_name})` }] };
       }
 
-      if (action === "dismiss_vaccine") {
-        const vaccineId = args.vaccine_id || args.program_id;
-        if (vaccineId) {
-          db.prepare("UPDATE memory_programs SET false_positive_count = false_positive_count + 1 WHERE id = ?").run(vaccineId);
-          const lastSession = db.prepare("SELECT id FROM session_states WHERE project = ? ORDER BY ended_at DESC LIMIT 1").get(projectId);
-          const currentSessionId = lastSession ? lastSession.id : 'default_session';
-          db.prepare(`
-            INSERT INTO session_behavior_log (id, session_id, event_type, vaccine_fired, timestamp)
-            VALUES (?, ?, 'vaccine_dismissed', ?, ?)
-          `).run(generateId('dismiss_' + vaccineId + now, 'behavior'), currentSessionId, vaccineId, now);
-          
-          return { content: [{ type: "text", text: JSON.stringify({ status: "vaccine_dismissed", vaccine_id: vaccineId }) }] };
-        } else {
-          throw new Error("vaccine_id or program_id required");
-        }
-      }
-
-      if (action === "prophecy") {
-        try {
-          const activePredictions = db.prepare(`
-            SELECT id, trigger_pattern, predicted_event, predicted_file, confidence, predicted_at, verify_at
-            FROM causal_predictions
-            WHERE outcome = 'pending'
-            ORDER BY confidence DESC
-          `).all();
-
-          const confirmed = db.prepare("SELECT COUNT(*) as cnt FROM causal_predictions WHERE outcome = 'confirmed'").get()?.cnt || 0;
-          const decayed = db.prepare("SELECT COUNT(*) as cnt FROM causal_predictions WHERE outcome = 'decayed'").get()?.cnt || 0;
-          const total = confirmed + decayed;
-          const accuracy = total > 0 ? (confirmed / total) : 0.8;
-
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                status: "success",
-                active_predictions: activePredictions,
-                prophecy_accuracy: accuracy.toFixed(2),
-                prophecy_index: activePredictions.length > 0 ? (activePredictions.reduce((sum, p) => sum + p.confidence, 0) / activePredictions.length).toFixed(2) : 0.0,
-                message: `Active Causal Warnings: ${activePredictions.length}. Historical prophecy accuracy: ${(accuracy * 100).toFixed(1)}%.`
-              })
-            }]
-          };
-        } catch (err) {
-          return { error: err.message };
-        }
-      }
-
-      if (action === "autopsy") {
-        const lastSession = db.prepare("SELECT id FROM session_states WHERE project = ? ORDER BY ended_at DESC LIMIT 1").get(projectId);
-        const currentSessionId = lastSession ? lastSession.id : 'default_session';
-
-        const perceiveCount = db.prepare("SELECT COUNT(*) as cnt FROM session_behavior_log WHERE session_id = ? AND event_type = 'perceive'").get(currentSessionId)?.cnt || 0;
-        const rememberCount = db.prepare("SELECT COUNT(*) as cnt FROM session_behavior_log WHERE session_id = ? AND event_type = 'remember'").get(currentSessionId)?.cnt || 0;
-        const constViolations = db.prepare("SELECT COUNT(*) as cnt FROM session_behavior_log WHERE session_id = ? AND event_type = 'constitution_violation'").get(currentSessionId)?.cnt || 0;
-        const contradictions = db.prepare("SELECT COUNT(*) as cnt FROM session_behavior_log WHERE session_id = ? AND event_type = 'contradiction'").get(currentSessionId)?.cnt || 0;
-        const vaccinesFired = db.prepare("SELECT COUNT(*) as cnt FROM session_behavior_log WHERE session_id = ? AND event_type = 'vaccine_fired'").get(currentSessionId)?.cnt || 0;
-        const cargoCults = db.prepare("SELECT COUNT(*) as cnt FROM session_behavior_log WHERE session_id = ? AND event_type = 'cargo_cult'").get(currentSessionId)?.cnt || 0;
-        const reversals = db.prepare("SELECT COUNT(*) as cnt FROM session_behavior_log WHERE session_id = ? AND event_type = 'vaccine_dismissed'").get(currentSessionId)?.cnt || 0;
-
-        const revDeduct = Math.min(reversals * 25, 25);
-        const constDeduct = Math.min(constViolations * 20, 20);
-        const cargoDeduct = Math.min(cargoCults * 15, 15);
-        
-        let predictionAccuracy = 0.8; 
-        try {
-          const confirmed = db.prepare("SELECT COUNT(*) as cnt FROM causal_predictions WHERE outcome = 'confirmed'").get()?.cnt || 0;
-          const decayed = db.prepare("SELECT COUNT(*) as cnt FROM causal_predictions WHERE outcome = 'decayed'").get()?.cnt || 0;
-          const total = confirmed + decayed;
-          if (total > 0) {
-            predictionAccuracy = confirmed / total;
-          }
-        } catch(e) {}
-        
-        const predScore = predictionAccuracy * 20;
-        
-        let fileDiffScore = 20;
-        try {
-          const predictedRows = db.prepare("SELECT DISTINCT predicted_file FROM causal_predictions WHERE predicted_file IS NOT NULL").all();
-          const predictedFiles = new Set(predictedRows.map(r => r.predicted_file));
-          if (predictedFiles.size > 0) {
-            const touchedRows = db.prepare("SELECT DISTINCT file_touched FROM session_behavior_log WHERE session_id = ? AND file_touched IS NOT NULL").all(currentSessionId);
-            const touchedFiles = touchedRows.map(r => r.file_touched);
-            const matched = touchedFiles.filter(f => predictedFiles.has(f)).length;
-            fileDiffScore = (matched / predictedFiles.size) * 20;
-          }
-        } catch(e) {}
-        
-        const bis = Math.max(0, 100 - revDeduct - constDeduct - cargoDeduct - (20 - predScore) - (20 - fileDiffScore));
-
-        const memContent = `SESSION AUTOPSY — Session #${currentSessionId}\nBIS: ${bis.toFixed(0)}/100 | Reversals: ${reversals} | Violations: ${constViolations} | Cargo Cults: ${cargoCults}`;
-        const memId = generateId(memContent, projectId);
-        
-        db.prepare(`
-          INSERT INTO episodic_memories (id, content, event_type, project, emotional_valence, emotional_arousal, salience, strength, created_at, updated_at)
-          VALUES (?, ?, 'session_autopsy', ?, 0.0, 0.0, 0.9, 1.0, ?, ?)
-        `).run(memId, memContent, projectId, now, now);
-
-        return { content: [{ type: "text", text: JSON.stringify({
-          status: "autopsy_completed",
-          bis: Math.round(bis),
-          reversals,
-          const_violations: constViolations,
-          contradictions,
-          vaccines_fired: vaccinesFired,
-          cargo_cults: cargoCults,
-          message: `Behavioral Integrity Score: ${Math.round(bis)}/100. Autopsy stored in episodic memories.`
-        }) }] };
-      }
-
-      if (action === "film") {
-        const fromDate = args.from_date || new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-        const toDate = args.to_date || new Date().toISOString();
-        
-        try {
-          const snapshots = db.prepare(`
-            SELECT * FROM code_topology_snapshots 
-            WHERE project = ? AND captured_at BETWEEN ? AND ? 
-            ORDER BY captured_at ASC
-          `).all(projectId, fromDate, toDate);
-          
-          if (snapshots.length === 0) {
-            return { content: [{ type: "text", text: JSON.stringify({ message: "No topology snapshots found in the specified range." }) }] };
-          }
-          
-          const first = snapshots[0];
-          const last = snapshots[snapshots.length - 1];
-          
-          const complexityTrend = last.complexity_score > first.complexity_score ? "increasing" : "decreasing";
-          const complexityPct = first.complexity_score > 0 ? ((last.complexity_score - first.complexity_score) / first.complexity_score) * 100 : 0;
-          
-          const migration = [];
-          let lastHotspot = null;
-          snapshots.forEach(s => {
-            if (s.hotspot_centroid && s.hotspot_centroid !== lastHotspot) {
-              migration.push(s.hotspot_centroid);
-              lastHotspot = s.hotspot_centroid;
-            }
-          });
-          
-          const days = (new Date(last.captured_at) - new Date(first.captured_at)) / (24 * 3600 * 1000) || 1;
-          const nodesAdded = last.node_count - first.node_count;
-          const deadCodeAccumulation = (nodesAdded / days).toFixed(2) + " nodes/day";
-          
-          const prediction = last.avg_gravity > 0.8 
-            ? `${last.hotspot_centroid || 'Hotspot'} is becoming an event horizon due to high gravity of ${last.avg_gravity.toFixed(2)}.`
-            : `System stability is normal. Trend is stable.`;
-            
-          const timeline = snapshots.map(s => ({
-            timestamp: s.captured_at,
-            nodes: s.node_count,
-            edges: s.edge_count,
-            hotspot: s.hotspot_centroid,
-            complexity: s.complexity_score
-          }));
-          
-          return { content: [{ type: "text", text: JSON.stringify({
-            complexity_trend: `${complexityTrend}_${Math.abs(complexityPct).toFixed(0)}%_overall`,
-            hotspot_migration: migration,
-            dead_code_accumulation: deadCodeAccumulation,
-            prediction: prediction,
-            timeline: timeline
-          }) }] };
-        } catch(err) {
-          return { error: err.message };
-        }
-      }
-
-      if (action === "mirror") {
-        try {
-          const latestMem = db.prepare(`
-            SELECT content FROM episodic_memories 
-            WHERE event_type = 'cognitive_mirror_report' AND project = ? 
-            ORDER BY created_at DESC LIMIT 1
-          `).get(projectId);
-          
-          if (latestMem) {
-            return { content: [{ type: "text", text: latestMem.content }] };
-          } else {
-            const report = generateCognitiveMirrorReport(projectId);
-            if (report) {
-              const reportStr = `COGNITIVE MIRROR REPORT\nScore: ${report.mirror_score}/100 | Personality: ${report.personality}\nBlind Spots:\n- ${report.blind_spots.join('\n- ')}\nDanger Windows:\n- ${report.danger_windows.join('\n- ')}\nMoat Skills:\n- ${report.moat_skills.join('\n- ')}`;
-              return { content: [{ type: "text", text: reportStr }] };
-            }
-          }
-          return { content: [{ type: "text", text: "Cognitive Mirror Report could not be generated." }] };
-        } catch(err) {
-          return { error: err.message };
-        }
-      }
-
       if (action === "record") {
         const data = args.memory_data || {};
         const content = data.content;
         const eventType = data.event_type || "observation";
         const linkedCodeNodes = data.linked_code_nodes || [];
 
-        // Log to session_behavior_log
-        try {
-          const lastSession = db.prepare("SELECT id FROM session_states WHERE project = ? ORDER BY ended_at DESC LIMIT 1").get(projectId);
-          const currentSessionId = lastSession ? lastSession.id : 'default_session';
-          db.prepare(`
-            INSERT INTO session_behavior_log (id, session_id, event_type, decision_made, timestamp)
-            VALUES (?, ?, 'remember', ?, ?)
-          `).run(generateId('remember_' + now, 'behavior'), currentSessionId, (content || "").substring(0, 200), now);
-        } catch(e) {}
-
-        // Check for hallucinations
-        const corrections = checkHallucinations(content, projectId);
-        let finalContent = content;
-        if (corrections && corrections.length > 0) {
-          finalContent = content + " | " + corrections.map(c => c.message).join(" | ");
-        }
-
-        const memId = generateId(finalContent, projectId);
-        const emotional = detectEmotionalSalience(finalContent);
+        const memId = generateId(content, projectId);
+        const emotional = detectEmotionalSalience(content);
 
         db.prepare(`
           INSERT INTO episodic_memories (id, content, event_type, project, emotional_valence, emotional_arousal, salience, strength, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, ?, ?)
-        `).run(memId, finalContent, eventType, projectId, emotional.valence, emotional.arousal, emotional.salience, now, now);
+        `).run(memId, content, eventType, projectId, emotional.valence, emotional.arousal, emotional.salience, now, now);
 
         const gitInfo = getCurrentGitInfo();
         db.prepare("INSERT OR REPLACE INTO memory_git_branches (memory_id, branch_name, commit_sha) VALUES (?, ?, ?)")
           .run(memId, gitInfo.branch, gitInfo.commit);
 
         if (hasVectors) {
-          const emb = await generateEmbedding(finalContent);
+          const emb = await generateEmbedding(content);
           if (emb) db.prepare("INSERT OR REPLACE INTO episodic_embeddings(rowid, embedding) VALUES (?, ?)").run(hexToBigInt(memId), JSON.stringify(emb));
         }
 
         for (const nodeId of linkedCodeNodes) {
           db.prepare("INSERT OR REPLACE INTO memory_code_links (memory_id, code_node_id, link_type) VALUES (?, ?, 'associated')").run(memId, nodeId);
         }
-
-        // Crystallize specific knowledge
-        crystallizeSpecificKnowledge(finalContent, projectId);
 
         return { content: [{ type: "text", text: JSON.stringify({ status: "success", memory_id: memId }) }] };
       }
@@ -3696,11 +1987,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             type: "text",
             text: JSON.stringify({
               ec: code,
-              exit_code: code,
               stdout: stdout.slice(0, 1000),
               stderr: stderr.slice(0, 1000),
-              sh2: harvestResult,
-              surprise_harvest: harvestResult
+              sh2: harvestResult
             })
           }]
         };
@@ -3722,42 +2011,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // ═══ Phase 4: Innovation D — Update Cognitive Fingerprint ═══
         const fingerprint = updateCognitiveFingerprint(projectId);
 
-        // ═══ Phase D-F: Additional Cognitive Pillars ═══
-        runSelfOptimization(projectId);
-        updateBiorhythmStats();
-        autoEvolveMetaPrograms(projectId);
-        runPostHocQueryFitnessVerification(projectId);
-        
-        // M5: Tesla Resonance Variable-Frequency Optimization
-        const teslaRes = optimizeTeslaResonance(projectId);
-
-        // M1: Causal Inference Engine pattern analysis
-        const causalRes = runCausalInferenceEngine(projectId);
-
-        // M6: Temporal Film topology diff
-        const topoDiff = computeTopologyDiff(projectId);
-
-        // M8: Cognitive Mirror weekly report check
-        let runMirrorReport = false;
-        try {
-          const lastReport = db.prepare("SELECT created_at FROM episodic_memories WHERE event_type = 'cognitive_mirror_report' AND project = ? ORDER BY created_at DESC LIMIT 1").get(projectId);
-          if (!lastReport) {
-            runMirrorReport = true;
-          } else {
-            const elapsed = Date.now() - new Date(lastReport.created_at).getTime();
-            if (elapsed > 7 * 24 * 3600 * 1000) {
-              runMirrorReport = true;
-            }
-          }
-        } catch(e) {
-          runMirrorReport = true;
-        }
-
-        let mirrorReportResult = null;
-        if (runMirrorReport) {
-          mirrorReportResult = generateCognitiveMirrorReport(projectId);
-        }
-
         // Write a daemon signal so the next perceive picks this up
         db.prepare("INSERT INTO daemon_signals (signal_type, payload, created_at, consumed) VALUES ('dream_completed', ?, ?, 0)")
           .run(JSON.stringify({
@@ -3766,11 +2019,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             schema_evolutions: evo.evolutions_count || 0,
             neocortex_patterns: neocortex.patterns_created_or_strengthened || 0,
             memories_archived_by_fitness: fitness.archived || 0,
-            fingerprint_updated: fingerprint.status === "fingerprint_updated",
-            tesla_resonance_optimization: teslaRes,
-            causal_patterns_detected: causalRes.patterns_detected || 0,
-            topology_diff: topoDiff,
-            cognitive_mirror_generated: !!mirrorReportResult
+            fingerprint_updated: fingerprint.status === "fingerprint_updated"
           }), now);
 
         return { content: [{ type: "text", text: JSON.stringify({
@@ -3782,14 +2031,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           torvalds_chrono_pruner: torvalds,
           neocortex_distillation: neocortex,
           fitness_selection: fitness,
-          cognitive_fingerprint: fingerprint,
-          self_optimization: "completed",
-          cognitive_biorhythm: "updated",
-          meta_programming: "evolved",
-          tesla_resonance_optimization: teslaRes,
-          causal_predictions: causalRes,
-          topology_diff: topoDiff,
-          cognitive_mirror_generated: !!mirrorReportResult
+          cognitive_fingerprint: fingerprint
         }) }] };
       }
 
@@ -3944,7 +2186,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             project: projectId
           };
           try {
-            const inheritanceResult = runMemoryInheritance(projectId);
             const distillations = db.prepare(
               "SELECT pattern FROM semantic_distillations WHERE project = ? ORDER BY strength DESC LIMIT 5"
             ).all(projectId);
@@ -3965,7 +2206,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               critical_files: criticalFiles,
               known_bugs: knownBugs,
               key_architectural_decisions: keyDecisions,
-              memory_inheritance: inheritanceResult,
               instruction: "You are now oriented. Proceed with full awareness of the project's known state."
             };
           } catch (e) {}
@@ -4402,11 +2642,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         `).all(projectId);
 
         const delta = outcome === 'success' ? 0.3 : outcome === 'failure' ? -0.2 : 0;
-        const fitDelta = outcome === 'success' ? 0.1 : outcome === 'failure' ? -0.05 : 0;
 
         for (const m of recentMems) {
           // Update memory strength as pheromone reinforcement
-          db.prepare("UPDATE episodic_memories SET strength = MAX(0.05, MIN(5.0, strength + ?)), fitness_score = MAX(0.0, MIN(1.0, COALESCE(fitness_score, 0.5) + ?)) WHERE id = ?").run(delta, fitDelta, m.id);
+          db.prepare("UPDATE episodic_memories SET strength = MAX(0.05, MIN(5.0, strength + ?)) WHERE id = ?").run(delta, m.id);
 
           // Log the pheromone trail
           db.prepare(`
@@ -4467,24 +2706,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // Auto-store high-confidence extractions
         const stored = [];
         for (const e of extracted.slice(0, 5)) {
-          const corrections = checkHallucinations(e.content, projectId);
-          let finalContent = e.content;
-          if (corrections && corrections.length > 0) {
-            finalContent = e.content + " | " + corrections.map(c => c.message).join(" | ");
-          }
-
-          const memId = generateId(finalContent, projectId + "_echo");
-          const emotional = detectEmotionalSalience(finalContent);
+          const memId = generateId(e.content, projectId + "_echo");
+          const emotional = detectEmotionalSalience(e.content);
           db.prepare(`
             INSERT OR IGNORE INTO episodic_memories
               (id, content, event_type, project, emotional_valence, emotional_arousal, salience, strength, source, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, 'cognitive_echo', ?, ?)
-          `).run(memId, finalContent, e.event_type, projectId, emotional.valence, emotional.arousal, Math.max(0.7, emotional.salience), now, now);
-          
-          // Crystallize specific knowledge
-          crystallizeSpecificKnowledge(finalContent, projectId);
-          
-          stored.push({ memory_id: memId, content: finalContent, type: e.event_type });
+          `).run(memId, e.content, e.event_type, projectId, emotional.valence, emotional.arousal, Math.max(0.7, emotional.salience), now, now);
+          stored.push({ memory_id: memId, content: e.content, type: e.event_type });
         }
 
         return { content: [{ type: "text", text: JSON.stringify({
@@ -4497,144 +2726,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             : "No high-confidence insights detected in this response."
         }) }] };
       }
-    }
-
-    // ═══════════════════════════════════════════════════
-    // COLLAPSED V6 PARALLEL TOOLS
-    // ═══════════════════════════════════════════════════
-
-    if (name === "owl.nexus") {
-      const context = args.context;
-      const action = args.action; // optional override
-      const project = args.project || "default";
-
-      // 1. Is the answer already in memory? (Memory-First check)
-      const mems = db.prepare("SELECT content, salience FROM episodic_memories WHERE project = ? AND is_active = 1").all(project);
-      let bestMatch = null;
-      let maxSim = 0;
-      for (const m of mems) {
-        const sim = calculateSimilarity(context, m.content);
-        if (sim > maxSim) {
-          maxSim = sim;
-          bestMatch = m;
-        }
-      }
-
-      if (maxSim > 0.8 && (!action || action === "recall")) {
-        const responseText = JSON.stringify({
-          status: "success",
-          source: "owl_memory_cache",
-          confidence: maxSim,
-          content: bestMatch.content,
-          message: "Returned from OWL memory cache. No network call or LLM call made."
-        });
-        return { content: [{ type: "text", text: responseText }] };
-      }
-
-      // 2. Decide routing if not resolved from cache
-      let routedAction = action;
-      if (!routedAction) {
-        const lowerContext = context.toLowerCase();
-        if (lowerContext.match(/https?:\/\/[^\s]+/) || lowerContext.includes("fetch") || lowerContext.includes("scrape")) {
-          routedAction = "fetch";
-        } else if (lowerContext.includes("research") || lowerContext.includes("explain") || lowerContext.includes("how to") || lowerContext.includes("what is") || lowerContext.includes("?")) {
-          routedAction = "research";
-        } else {
-          routedAction = "recall";
-        }
-      }
-
-      if (routedAction === "fetch") {
-        const urlMatch = context.match(/https?:\/\/[^\s]+/);
-        const url = urlMatch ? urlMatch[0] : null;
-        if (url) {
-          const fetchResult = callPythonTool("fetch", { url: url, mode: "static" });
-          return { content: [{ type: "text", text: JSON.stringify(fetchResult) }] };
-        }
-      }
-
-      if (routedAction === "research") {
-        const researchResult = callPythonTool("research", { topic: context, depth: "medium", project: project });
-        return { content: [{ type: "text", text: JSON.stringify(researchResult) }] };
-      }
-
-      // Default fallback: recall
-      const recallMems = mems.map(m => ({
-        id: m.id,
-        content: m.content,
-        score: Math.round(calculateSimilarity(context, m.content) * 100) / 100
-      })).sort((a, b) => b.score - a.score).slice(0, 5);
-
-      return { content: [{ type: "text", text: JSON.stringify({ status: "success", local_matches: recallMems }) }] };
-    }
-
-    if (name === "owl.remember") {
-      const content = args.content;
-      const modality = args.modality || "text";
-      const project = args.project || "default";
-
-      if (modality !== "text") {
-        const codexId = storeCodexMemory(content, modality, null, [], project);
-        return { content: [{ type: "text", text: JSON.stringify({ status: "success", memory_id: codexId, type: "codex" }) }] };
-      } else {
-        const memId = generateId(content, project);
-        const emotional = detectEmotionalSalience(content);
-        db.prepare("INSERT INTO episodic_memories (id, content, project, emotional_valence, emotional_arousal, salience, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-          .run(memId, content, project, emotional.valence, emotional.arousal, emotional.salience, now, now);
-        return { content: [{ type: "text", text: JSON.stringify({ status: "success", memory_id: memId, type: "episodic" }) }] };
-      }
-    }
-
-    if (name === "owl.recall") {
-      const query = args.query;
-      const project = args.project || "default";
-      const mems = db.prepare("SELECT * FROM episodic_memories WHERE project = ? AND is_active = 1").all(project);
-      
-      const matches = mems.map(m => ({
-        id: m.id,
-        content: m.content,
-        score: Math.round(calculateSimilarity(query, m.content) * 100) / 100
-      })).sort((a, b) => b.score - a.score).slice(0, 10);
-
-      // Hebbian strengthening & reconconsolidation
-      const emotional = detectEmotionalSalience(query);
-      for (const m of matches.slice(0, 3)) {
-        if (m.score > 0.35) {
-          reconsolidateMemory(m.id, emotional);
-        }
-      }
-
-      const crossMatches = queryCrossProjectKnowledge(query, project);
-      const responsePayload = {
-        status: "success",
-        local_matches: matches,
-        cross_project_matches: crossMatches
-      };
-
-      const tokensInjected = Math.round(JSON.stringify(responsePayload).length / 4);
-      db.prepare(
-        "INSERT INTO token_ledger (project, tool_called, tokens_injected, tokens_saved_estimate, created_at) VALUES (?, 'owl.recall', ?, ?, ?)"
-      ).run(project, tokensInjected, tokensInjected * 10, now);
-
-      return { content: [{ type: "text", text: JSON.stringify(responsePayload) }] };
-    }
-
-    if (name === "owl.research") {
-      const topic = args.topic;
-      const depth = args.depth || "medium";
-      const project = args.project || "default";
-      const activeFile = args.active_file || "";
-
-      const researchResult = callPythonTool("research", { topic, depth, project, active_file: activeFile });
-      return { content: [{ type: "text", text: JSON.stringify(researchResult) }] };
-    }
-
-    if (name === "owl.fetch") {
-      const url = args.url;
-      const mode = args.mode || "static";
-
-      const fetchResult = callPythonTool("fetch", { url, mode });
-      return { content: [{ type: "text", text: JSON.stringify(fetchResult) }] };
     }
 
     return { content: [{ type: "text", text: `Unknown tool: ${name}` }] };

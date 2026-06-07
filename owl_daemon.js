@@ -54,6 +54,9 @@ try {
 try {
   db.exec("ALTER TABLE episodic_memories ADD COLUMN original_content TEXT;");
 } catch(e) {}
+try {
+  db.exec("ALTER TABLE episodic_memories ADD COLUMN stale_flag INTEGER DEFAULT 0;");
+} catch(e) {}
 
 console.log(`[OWL DAEMON] Watching workspace: ${WORKSPACE_DIR}`);
 console.log(`[OWL DAEMON] Connected to DB: ${DB_PATH}`);
@@ -284,7 +287,7 @@ function handleFileChange(filePath) {
   lastSavedFileId = relPath;
   lastSaveTime = currentTime;
 
-  // 2. Syntax Validation
+  // 2. Syntax Validation & Custom Handler
   let isValid = true;
   let syntaxError = "";
 
@@ -302,6 +305,50 @@ function handleFileChange(filePath) {
       isValid = false;
       syntaxError = err.message || "Python syntax error detected.";
     }
+  } else if (ext === ".md") {
+    try {
+      const content = fs.readFileSync(filePath, "utf-8");
+      const lines = content.split("\n");
+      const decisions = [];
+      for (const line of lines) {
+        if (/decided|choosing|will use|rejected/i.test(line)) {
+          decisions.push(line.trim());
+        }
+      }
+      if (decisions.length > 0) {
+        const memoryId = generateId(decisions.join("\n"), "md_decision");
+        const decContent = `[ARCHITECTURAL DECISION] File: ${relPath}\n${decisions.slice(0, 5).join("\n")}`;
+        db.prepare(`
+          INSERT OR IGNORE INTO episodic_memories 
+          (id, content, event_type, project, salience, strength, created_at, updated_at) 
+          VALUES (?, ?, 'architectural_decision', 'default', 0.85, 1.0, ?, ?)
+        `).run(memoryId, decContent, now, now);
+        console.log(`[OWL DAEMON] Logged architectural decision memory: ${memoryId}`);
+      }
+    } catch (e) {
+      console.error("[OWL DAEMON] MD processing error:", e.message);
+    }
+  } else if (ext === ".json" || ext === ".yaml" || ext === ".yml") {
+    try {
+      const content = fs.readFileSync(filePath, "utf-8");
+      db.prepare("INSERT INTO daemon_signals (signal_type, payload, created_at, consumed) VALUES (?, ?, ?, 0)")
+        .run("config_change", JSON.stringify({ file: relPath, size: content.length }), now);
+    } catch (e) {}
+  } else if (ext === ".sql") {
+    try {
+      const content = fs.readFileSync(filePath, "utf-8");
+      if (/create table|alter table|drop table/i.test(content)) {
+        const memoryId = generateId(content, "sql_migration");
+        db.prepare(`
+          INSERT OR IGNORE INTO episodic_memories 
+          (id, content, event_type, project, salience, strength, created_at, updated_at) 
+          VALUES (?, ?, 'schema_migration', 'default', 0.9, 1.0, ?, ?)
+        `).run(memoryId, `[SCHEMA MIGRATION] File: ${relPath}\nContent outline: ${content.slice(0, 300)}`, now, now);
+        
+        db.prepare("INSERT INTO daemon_signals (signal_type, payload, created_at, consumed) VALUES (?, ?, ?, 0)")
+          .run("schema_migration_detected", JSON.stringify({ file: relPath }), now);
+      }
+    } catch (e) {}
   }
 
   // 3. Database Sync & OS Notification
@@ -377,6 +424,9 @@ function handleFileChange(filePath) {
   // 5. Innovation B: Write Predictive Cache for next resurrect call
   writePredictiveCache(relPath, "default");
 
+  // D4: Run Reflexive Interrupt checks
+  checkReflexiveInterrupts(relPath);
+
   // Reset idle timer
   resetIdleTimer();
 }
@@ -410,8 +460,12 @@ function resetIdleTimer() {
       } catch (e) { }
 
       if (diffStat && diffStat.length > 0) {
-        const memoryId = generateId(diffStat, "auto_checkpoint");
-        const content = `AUTO-CHECKPOINT: Developer paused for 3 minutes. Workspace changes detected:\n${diffStat}\nIntention: Uncommitted local modifications.`;
+        const semanticDetails = parseSemanticDiff();
+        const memoryId = generateId(diffStat + semanticDetails, "auto_checkpoint");
+        let content = `AUTO-CHECKPOINT: Developer paused for 3 minutes. Workspace changes detected:\n${diffStat}\nIntention: Uncommitted local modifications.`;
+        if (semanticDetails) {
+          content = `AUTO-CHECKPOINT: ${semanticDetails}. Original diff stats:\n${diffStat}`;
+        }
         db.prepare(`
           INSERT OR IGNORE INTO episodic_memories 
           (id, content, event_type, project, salience, strength, created_at, updated_at) 
@@ -712,8 +766,20 @@ function watchWorkspace() {
       return;
     }
 
-    const ext = path.extname(fullPath);
-    if (ext !== ".js" && ext !== ".py" && ext !== ".ts") return;
+    const ext = path.extname(fullPath).toLowerCase();
+    // Note: .env.example is matched as .example by extname, handle separately
+    const allowedExtensions = [".js", ".py", ".ts", ".md", ".json", ".yaml", ".yml", ".toml", ".sql", ".sh", ".txt"];
+    const isEnvExample = fullPath.endsWith(".env.example") || fullPath.endsWith(".env.local");
+    if (!allowedExtensions.includes(ext) && !isEnvExample) return;
+
+    if (ext === ".txt") {
+      try {
+        const stats = fs.statSync(fullPath);
+        if (stats.size > 5120) return;
+      } catch (e) {
+        return;
+      }
+    }
 
     // Debounce saves
     if (debounceMap.has(fullPath)) clearTimeout(debounceMap.get(fullPath));
@@ -731,7 +797,236 @@ function watchWorkspace() {
   });
 }
 
+function checkCrossServerEvents() {
+  try {
+    const crossEvents = db.prepare(
+      // Only fetch events not yet consumed by owl-daemon to avoid full table scan
+      "SELECT id, source_server, event_type, payload, target_servers, consumed_by, created_at FROM cross_server_events WHERE consumed_by NOT LIKE '%\"owl-daemon\"%' ORDER BY id DESC LIMIT 50"
+    ).all();
+    
+    for (const ev of crossEvents) {
+      let targetsList = [];
+      let consumedList = [];
+      try { targetsList = JSON.parse(ev.target_servers || "[]"); } catch(e) {}
+      try { consumedList = JSON.parse(ev.consumed_by || "[]"); } catch(e) {}
+      
+      if (consumedList.includes("owl-daemon")) continue;
+      if (targetsList.length > 0 && !targetsList.includes("owl-daemon")) continue;
+      
+      let parsedPayload = ev.payload;
+      try { parsedPayload = JSON.parse(ev.payload); } catch(e) {}
+      
+      console.log(`[OWL DAEMON] Processed cross-server event: ${ev.event_type} from ${ev.source_server}`);
+      
+      if (ev.event_type === "research_complete" && parsedPayload.topic) {
+        if (lastSavedFileId) {
+          console.log(`[OWL DAEMON] Re-writing predictive cache due to research_complete on ${parsedPayload.topic}`);
+          writePredictiveCache(lastSavedFileId, "default");
+        }
+      } else if (ev.event_type === "research_invalidation_required") {
+        triggerWindowsNotification("OWL Knowledge Alert", `Research memory about ${parsedPayload.domain} marked stale due to monitored page changes.`);
+      }
+      
+      consumedList.push("owl-daemon");
+      db.prepare("UPDATE cross_server_events SET consumed_by = ? WHERE id = ?").run(
+        JSON.stringify(consumedList), ev.id
+      );
+    }
+  } catch (err) {
+    console.error("[OWL DAEMON] checkCrossServerEvents failed:", err.message);
+  }
+}
+
+function checkReflexiveInterrupts(relPath) {
+  const now = new Date().toISOString();
+  try {
+    // 1. Suppression Mechanism
+    const dismissalRow = db.prepare(`
+      SELECT COUNT(*) as cnt, MAX(timestamp) as last_dismissed 
+      FROM session_behavior_log 
+      WHERE event_type = 'interrupt_dismissed' AND file_touched = ?
+    `).get(relPath);
+    
+    let dismissals = dismissalRow ? dismissalRow.cnt : 0;
+    let lastDismissed = dismissalRow ? dismissalRow.last_dismissed : null;
+    
+    if (dismissals >= 5 && lastDismissed) {
+      const hoursSince = (Date.now() - new Date(lastDismissed).getTime()) / (3600 * 1000);
+      if (hoursSince < 48) {
+        console.log(`[OWL REFLEXIVE] Silencing warnings for ${relPath} (suppressed for 48h due to ${dismissals} dismissals)`);
+        return;
+      }
+    }
+    
+    if (dismissals >= 3) {
+      const nodeRow = db.prepare("SELECT edit_count FROM code_nodes WHERE id = ?").get(relPath);
+      const editCount = nodeRow ? nodeRow.edit_count : 0;
+      if (editCount % 2 !== 0) {
+        console.log(`[OWL REFLEXIVE] Skipping warning for ${relPath} due to reduced frequency (dismissals = ${dismissals})`);
+        return;
+      }
+    }
+
+    // 2. Biorhythm risk check
+    const currentHour = new Date().getHours();
+    const currentDay = new Date().getDay();
+    let riskMultiplier = 1.0;
+    const bioRow = db.prepare("SELECT risk_multiplier FROM cognitive_biorhythm WHERE hour_of_day = ? AND day_of_week = ?").get(currentHour, currentDay);
+    if (bioRow) riskMultiplier = bioRow.risk_multiplier;
+    if (currentDay === 5 && currentHour >= 15 && currentHour <= 17) {
+      riskMultiplier = 3.2;
+    }
+
+    if (riskMultiplier > 2.0) {
+      db.prepare(`
+        INSERT INTO daemon_signals (signal_type, payload, created_at, consumed)
+        VALUES ('reflexive_interrupt', ?, ?, 0)
+      `).run(JSON.stringify({
+        type: "cognitive_biorhythm",
+        priority: "high",
+        message: `⚠️ BIORHYTHM ALERT: You are in a high-risk hour. Risk multiplier is ${riskMultiplier.toFixed(1)}x. Double-check your code.`,
+        file: relPath
+      }), now);
+    }
+
+    // 3. Causal predictions check
+    const predictions = db.prepare(`
+      SELECT * FROM causal_predictions 
+      WHERE outcome = 'pending' AND (predicted_file = ? OR ? LIKE '%' || predicted_file)
+    `).all(relPath, relPath);
+
+    for (const pred of predictions) {
+      db.prepare(`
+        INSERT INTO daemon_signals (signal_type, payload, created_at, consumed)
+        VALUES ('reflexive_interrupt', ?, ?, 0)
+      `).run(JSON.stringify({
+        type: "causal_prediction",
+        priority: pred.confidence > 0.8 ? "critical" : "medium",
+        message: `⚠️ PROPHETIC WARNING: Editing ${pred.predicted_file} has historically led to errors/bugs in ${(pred.confidence * 100).toFixed(0)}% of sessions.`,
+        file: relPath
+      }), now);
+    }
+
+    // 4. Constitutional check (rules 1 and 2)
+    const filePath = path.join(WORKSPACE_DIR, relPath);
+    if (fs.existsSync(filePath)) {
+      const codeSnippet = fs.readFileSync(filePath, "utf-8");
+      
+      // Rule 1: Credentials
+      if (codeSnippet.match(/(?:key|password|secret|token)\s*=\s*['"][a-zA-Z0-9_-]{16,}['"]/i)) {
+        db.prepare(`
+          INSERT INTO daemon_signals (signal_type, payload, created_at, consumed)
+          VALUES ('reflexive_interrupt', ?, ?, 0)
+        `).run(JSON.stringify({
+          type: "constitutional_violation",
+          priority: "critical",
+          message: "⚖️ CONSTITUTIONAL ALERT: Sensitive credentials/keys found in code.",
+          file: relPath
+        }), now);
+      }
+      
+      // Rule 2: Async try-catch
+      if (codeSnippet.includes("async ") && !codeSnippet.includes("try") && !codeSnippet.includes("catch")) {
+        db.prepare(`
+          INSERT INTO daemon_signals (signal_type, payload, created_at, consumed)
+          VALUES ('reflexive_interrupt', ?, ?, 0)
+        `).run(JSON.stringify({
+          type: "constitutional_violation",
+          priority: "high",
+          message: "⚖️ CONSTITUTIONAL ALERT: Async call lacks try-catch wrapper.",
+          file: relPath
+        }), now);
+      }
+    }
+
+  } catch(e) {
+    console.error("[OWL REFLEXIVE] Error checking interrupts:", e.message);
+  }
+}
+
+function parseSemanticDiff() {
+  let semanticSummary = "";
+  try {
+    const diff = execSync("git diff HEAD --unified=0", { cwd: WORKSPACE_DIR, stdio: ["ignore", "pipe", "ignore"] }).toString();
+    const lines = diff.split("\n");
+    let currentFile = "";
+    const addedFuncs = [];
+    const removedFuncs = [];
+    const addedImports = [];
+    const keywords = new Set();
+
+    for (const line of lines) {
+      if (line.startsWith("+++ b/")) {
+        currentFile = line.substring(6).trim();
+        continue;
+      }
+      if (line.startsWith("+") && !line.startsWith("+++")) {
+        const content = line.substring(1).trim();
+        content.toLowerCase().match(/\b(jwt|auth|token|refresh|db|route|user|api|cache|fetch|predict|resonance|trust|synthesis)\b/g)?.forEach(w => keywords.add(w));
+        
+        const defMatch = content.match(/(?:def|function)\s+([a-zA-Z0-9_]+)/) || content.match(/const\s+([a-zA-Z0-9_]+)\s*=\s*(?:async\s*)?\(/);
+        if (defMatch) {
+          addedFuncs.push(`function '${defMatch[1]}' to ${path.basename(currentFile)}`);
+        }
+        const importMatch = content.match(/import\s+([\s\S]+?)(?:\s+from\s+['"]([\w_-]+)['"]|;|$)/) || content.match(/const\s+([\w_-]+)\s*=\s*require\(/);
+        if (importMatch) {
+          const impName = importMatch[2] || importMatch[1].trim();
+          addedImports.push(`import '${impName}' to ${path.basename(currentFile)}`);
+        }
+      } else if (line.startsWith("-") && !line.startsWith("---")) {
+        const content = line.substring(1).trim();
+        const defMatch = content.match(/(?:def|function)\s+([a-zA-Z0-9_]+)/) || content.match(/const\s+([a-zA-Z0-9_]+)\s*=\s*(?:async\s*)?\(/);
+        if (defMatch) {
+          removedFuncs.push(`function '${defMatch[1]}' from ${path.basename(currentFile)}`);
+        }
+      }
+    }
+
+    const summaries = [];
+    if (addedFuncs.length > 0) summaries.push(`Added ${addedFuncs.join(", ")}`);
+    if (removedFuncs.length > 0) summaries.push(`Removed ${removedFuncs.join(", ")}`);
+    if (addedImports.length > 0) summaries.push(`Added ${addedImports.join(", ")}`);
+
+    if (summaries.length > 0) {
+      semanticSummary = summaries.join(". ");
+      if (keywords.size > 0) {
+        semanticSummary += `. Pattern: ${Array.from(keywords).join(" ")} implementation`;
+      }
+    }
+  } catch (e) {
+    console.error("[OWL SEMANTIC DIFF] Failed to parse semantic diff:", e.message);
+  }
+  return semanticSummary;
+}
+
+// Guard: prevent multiple concurrent monitor check processes
+let _monitorCheckRunning = false;
+
+function runMonitorChecking() {
+  if (_monitorCheckRunning) {
+    console.log("[OWL DAEMON] Monitor check already running, skipping.");
+    return;
+  }
+  _monitorCheckRunning = true;
+  const checkScript = path.join(__dirname, "check_monitors.py");
+  console.log(`[OWL DAEMON] Running background monitor check: ${checkScript}`);
+  exec(`python "${checkScript}"`, (err, stdout, stderr) => {
+    _monitorCheckRunning = false;
+    if (err) {
+      console.error(`[OWL DAEMON MONITOR CHECK ERROR] ${err.message}`);
+      return;
+    }
+    if (stdout && stdout.trim()) {
+      console.log(`[OWL DAEMON MONITOR CHECK] ${stdout.trim()}`);
+    }
+  });
+}
+
 // Start watching and start idle timer
 watchWorkspace();
 resetIdleTimer();
+runMonitorChecking();
+setInterval(runMonitorChecking, 2 * 60 * 1000); // Check every 2 minutes
+checkCrossServerEvents();
+setInterval(checkCrossServerEvents, 15 * 1000); // Check every 15 seconds
 triggerWindowsNotification("OWL Substrate", "Autonomic background daemon watcher is active.");

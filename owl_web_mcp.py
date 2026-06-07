@@ -25,7 +25,15 @@ import asyncio
 import json
 import sys
 import traceback
+import os
+import re
+import time
+import sqlite3
+import hashlib
+from datetime import datetime, timezone
 from typing import Any
+import owl_shared_intelligence
+from owl_shared_intelligence import _OWL_DB_PATH, _get_domain_trust, _notify_owl_memory_of_change, computeTemporalFreshness, invalidate_related_research
 
 try:
     from mcp.server import Server
@@ -85,6 +93,148 @@ def _get_text(el):
             return str(el)
 
 
+CHANGE_PATTERN_CLASSIFIERS = [
+    (r"₹[\d,]+|Rs\.?\s*[\d,]+|\$[\d,.]+", "price_change", "high"),
+    (r"\b(discontinued|removed|no longer|unavailable|sold out)\b", "removal", "high"),
+    (r"\b(new|launching|introducing|available now|added)\b", "new_listing", "medium"),
+    (r"\b(deadline|last date|closing|expires?)\b.*\d{1,2}[\/-]\d{1,2}", "deadline_change", "critical"),
+    (r"\b(circular|notification|gazette|amendment|regulation)\b", "regulatory_update", "critical"),
+    (r"version\s+\d+\.\d+|\bv\d+\.\d+\b", "version_change", "medium"),
+    (r"\b(security|vulnerability|CVE-\d+|breach|patch)\b", "security_alert", "critical"),
+]
+
+def _extract_semantic_events(previous_text: str, current_text: str) -> list[dict]:
+    events = []
+    
+    # 1. Price extraction and comparison
+    price_regex = r'(?:₹|\$|Rs\.?|USD|INR)\s*([0-9,]+(?:\.[0-9]+)?)'
+    prev_prices = re.findall(price_regex, previous_text)
+    curr_prices = re.findall(price_regex, current_text)
+    
+    if prev_prices and curr_prices:
+        try:
+            p1 = float(prev_prices[0].replace(',', ''))
+            p2 = float(curr_prices[0].replace(',', ''))
+            if p1 != p2:
+                direction = "increase" if p2 > p1 else "decrease"
+                magnitude = f"{abs(p2 - p1) / p1 * 100:.1f}%" if p1 > 0 else "N/A"
+                events.append({
+                    "type": "PriceChangeEvent",
+                    "severity": "critical",
+                    "old_value": f"{p1}",
+                    "new_value": f"{p2}",
+                    "magnitude": magnitude,
+                    "direction": direction,
+                    "description": f"Price changed from {p1} to {p2} ({direction} of {magnitude})"
+                })
+        except Exception:
+            pass
+
+    # 2. Version extraction and comparison
+    version_regex = r'\b(?:version|v)\s*([0-9]+\.[0-9]+(?:\.[0-9]+)?)\b'
+    prev_versions = re.findall(version_regex, previous_text, re.IGNORECASE)
+    curr_versions = re.findall(version_regex, current_text, re.IGNORECASE)
+    
+    if prev_versions and curr_versions:
+        v1 = prev_versions[0]
+        v2 = curr_versions[0]
+        if v1 != v2:
+            try:
+                p1_parts = v1.split('.')
+                p2_parts = v2.split('.')
+                is_major = p1_parts[0] != p2_parts[0]
+            except Exception:
+                is_major = False
+            events.append({
+                "type": "VersionChangeEvent",
+                "severity": "high" if is_major else "medium",
+                "old_value": v1,
+                "new_value": v2,
+                "is_major": is_major,
+                "description": f"Version changed from {v1} to {v2} (Major: {is_major})"
+            })
+
+    # 3. Status extraction and comparison
+    status_keywords = ["deprecated", "available", "maintenance", "offline", "active", "disabled"]
+    for keyword in status_keywords:
+        prev_has = keyword in previous_text.lower()
+        curr_has = keyword in current_text.lower()
+        if curr_has and not prev_has:
+            events.append({
+                "type": "StatusChangeEvent",
+                "severity": "critical" if keyword in ["deprecated", "offline", "maintenance"] else "medium",
+                "old_value": "not_present",
+                "new_value": keyword,
+                "description": f"Status updated to: {keyword}"
+            })
+            
+    # Fallback to standard regex patterns if no specific events were found
+    if not events:
+        combined_text = (previous_text + " " + current_text).lower()
+        for pattern, change_type, severity in CHANGE_PATTERN_CLASSIFIERS:
+            if re.search(pattern, combined_text, re.IGNORECASE):
+                matches = re.findall(pattern, combined_text, re.IGNORECASE)
+                events.append({
+                    "type": change_type,
+                    "severity": severity,
+                    "old_value": "",
+                    "new_value": ", ".join(list(set(matches))[:3]),
+                    "description": f"Detected {change_type} in text."
+                })
+                
+    return events
+
+def _classify_semantic_changes(added_lines: list[str], removed_lines: list[str]) -> list[dict]:
+    # Compatibility wrapper
+    added_text = " ".join(added_lines)
+    removed_text = " ".join(removed_lines)
+    return _extract_semantic_events(removed_text, added_text)
+
+
+def _compute_optimal_check_frequency(url: str) -> int:
+    """Pillar 19: Tesla Resonant Adaptive Monitoring Frequency"""
+    try:
+        with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+            conn.execute("PRAGMA wal_autocheckpoint = 100")
+            rows = conn.execute("""
+                SELECT fetched_at, significant_change FROM web_page_history
+                WHERE url = ?
+                ORDER BY fetched_at ASC
+            """, (url,)).fetchall()
+            
+            if len(rows) < 3:
+                return 60
+                
+            change_times = []
+            for r in rows:
+                if r[1] == 1:
+                    change_times.append(r[0])
+                    
+            if len(change_times) < 2:
+                return 1440 # Daily
+                
+            intervals = []
+            for i in range(1, len(change_times)):
+                try:
+                    dt1 = datetime.fromisoformat(change_times[i-1].replace('Z', ''))
+                    dt2 = datetime.fromisoformat(change_times[i].replace('Z', ''))
+                    delta = (dt2 - dt1).total_seconds() / 60
+                    if delta > 0:
+                        intervals.append(delta)
+                except Exception:
+                    pass
+                    
+            if not intervals:
+                return 1440
+                
+            avg_interval = sum(intervals) / len(intervals)
+            optimal = max(5, int(avg_interval / 3))
+            return min(optimal, 1440)
+    except Exception:
+        pass
+    return 60
+
+
 def _extract_from_page(page, css_selector=None, xpath=None, attribute=None, limit=50):
     """Extract elements from a Scrapling page using CSS or XPath."""
     results = []
@@ -112,10 +262,19 @@ def _extract_from_page(page, css_selector=None, xpath=None, attribute=None, limi
 
 def _page_to_dict(page, url, css_selector=None, xpath=None, attribute=None, limit=50):
     """Convert a Scrapling Response page to a clean dict."""
+    trust_score = _get_domain_trust(url)
+    now_iso = datetime.now(timezone.utc).isoformat() + "Z"
+    freshness = computeTemporalFreshness(url, now_iso)
+    
     result = {
         "url": url,
         "status": getattr(page, 'status', None),
         "title": None,
+        "domain_trust": {
+            "trust_score": trust_score,
+            "warning": "Low-trust domain in source leverage ledger. Proceed with caution." if trust_score < 0.2 else None
+        },
+        "freshness": freshness
     }
 
     # Title
@@ -373,8 +532,31 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["start_url"]
             }
+        ),
+        Tool(
+            name="web_trace_claim",
+            description=(
+                "Returns the full provenance chain (source URLs, trust scores, fetch times) "
+                "for a claim or snippet stored in OWL's memory."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "claim_text": {
+                        "type": "string",
+                        "description": "The claim text or keyword to trace."
+                    },
+                    "project": {
+                        "type": "string",
+                        "description": "The project context. Default 'default'.",
+                        "default": "default"
+                    }
+                },
+                "required": ["claim_text"]
+            }
         )
     ]
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -498,6 +680,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             elif adaptive:
                 note = "Adaptive mode: OWL auto-relocated elements even if the site structure changed."
 
+            trust_score = _get_domain_trust(url)
+            now_iso = datetime.now(timezone.utc).isoformat() + "Z"
+            freshness = computeTemporalFreshness(url, now_iso)
+
             return [TextContent(type="text", text=json.dumps({
                 "url": url,
                 "css_selector": css_selector,
@@ -505,7 +691,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 "auto_save_enabled": auto_save,
                 "elements_found": len(extracted),
                 "data": extracted,
-                "note": note
+                "note": note,
+                "domain_trust": {
+                    "trust_score": trust_score,
+                    "warning": "Low-trust domain in source leverage ledger. Proceed with caution." if trust_score < 0.2 else None
+                },
+                "freshness": freshness
             }, ensure_ascii=False))]
 
         # ── web_batch_fetch ────────────────────────────────────────────────
@@ -676,14 +867,59 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             added = [l[1:].strip() for l in diff if l.startswith("+") and not l.startswith("+++")]
             removed = [l[1:].strip() for l in diff if l.startswith("-") and not l.startswith("---")]
 
+            # Pillar 20: Classify semantic changes
+            semantic_events = _extract_semantic_events(previous_text, current_text)
+            has_changes = bool(diff)
+            is_significant = 1 if (len(semantic_events) > 0 or len(added) > 5 or len(removed) > 5) else 0
+
+            # Store in web_page_history
+            now_iso = datetime.now(timezone.utc).isoformat() + "Z"
+            content_hash = hashlib.sha256(current_text.encode()).hexdigest()
+            change_summary = ""
+            if semantic_events:
+                change_summary = ", ".join(f"{c['type']} ({c['description']})" for c in semantic_events)
+            elif has_changes:
+                change_summary = f"{len(added)} lines added, {len(removed)} lines removed"
+
+            try:
+                with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                    conn.execute("PRAGMA wal_autocheckpoint = 100")
+                    conn.execute("""
+                        INSERT INTO web_page_history (url, label, content_hash, content_snapshot, significant_change, change_summary, fetched_at, css_selector)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (url, "web_diff", content_hash, current_text[:1000], is_significant, change_summary, now_iso, selector))
+                    
+                    for ev in semantic_events:
+                        conn.execute("""
+                            INSERT INTO web_semantic_changes (url, label, change_type, old_value, new_value, detected_at, alert_sent_to_memory)
+                            VALUES (?, ?, ?, ?, ?, ?, 1)
+                        """, (url, "web_diff", ev["type"], ev.get("old_value", ""), ev.get("new_value", ""), now_iso))
+                    conn.commit()
+            except Exception as db_err:
+                print(f"[debug] failed to write page history: {db_err}", file=sys.stderr)
+
+            # Pillar 17: Send somatic alert to owl-memory if significant semantic changes found
+            if semantic_events:
+                _notify_owl_memory_of_change(url, "web_diff_alert", change_summary, arguments.get("project", "default"))
+                
+            # W4: Web-Research Feedback Loop
+            if is_significant:
+                invalidate_related_research(url, change_summary)
+
+            # Einstein domain temporal freshness (Pillar 18)
+            freshness = computeTemporalFreshness(url, now_iso)
+
             return [TextContent(type="text", text=json.dumps({
                 "status": "diff_complete",
                 "url": url,
-                "has_changes": bool(diff),
+                "has_changes": has_changes,
+                "is_significant": bool(is_significant),
                 "added_lines": added[:50],
                 "removed_lines": removed[:50],
                 "total_added": len(added),
                 "total_removed": len(removed),
+                "semantic_changes": semantic_changes,
+                "freshness": freshness,
                 "current_text_preview": current_text[:500],
                 "raw_diff": "".join(diff[:200])
             }, ensure_ascii=False))]
@@ -701,6 +937,11 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             if not url or not label:
                 return [TextContent(type="text", text=json.dumps({"error": "url and label are required"}))]
 
+            is_adaptive = False
+            if interval <= 0:
+                interval = _compute_optimal_check_frequency(url)
+                is_adaptive = True
+
             monitor_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "owl_monitors.json")
             monitors = []
             if os.path.exists(monitor_file):
@@ -717,9 +958,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 "label": label,
                 "css_selector": selector,
                 "check_interval_minutes": interval,
+                "is_adaptive": is_adaptive,
                 "notify_on": notify_on,
                 "keyword": keyword,
-                "created_at": __import__('datetime').datetime.utcnow().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat() + "Z",
                 "last_checked_at": None,
                 "last_snapshot": None,
                 "is_active": True
@@ -738,9 +980,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 "url": url,
                 "label": label,
                 "check_interval_minutes": interval,
+                "is_adaptive": is_adaptive,
                 "file_write_status": write_status,
                 "monitor_file": monitor_file,
-                "message": f"Monitor '{label}' registered. OWL will track changes to {url} every {interval} minutes."
+                "message": f"Monitor '{label}' registered. OWL will track changes to {url} every {interval} minutes (Adaptive: {is_adaptive})."
             }, ensure_ascii=False))]
 
         # ─── web_session_scrape ───────────────────────────────────────────────
@@ -777,11 +1020,20 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 except Exception as sel_err:
                     results[field_name] = {"error": str(sel_err)}
 
+            trust_score = _get_domain_trust(url)
+            now_iso = datetime.now(timezone.utc).isoformat() + "Z"
+            freshness = computeTemporalFreshness(url, now_iso)
+
             return [TextContent(type="text", text=json.dumps({
                 "status": "session_scrape_complete",
                 "url": url,
                 "selectors_queried": list(selectors.keys()),
-                "results": results
+                "results": results,
+                "domain_trust": {
+                    "trust_score": trust_score,
+                    "warning": "Low-trust domain in source leverage ledger. Proceed with caution." if trust_score < 0.2 else None
+                },
+                "freshness": freshness
             }, ensure_ascii=False))]
 
         # ─── web_research_crawl ───────────────────────────────────────────────
@@ -861,6 +1113,34 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 "pages": crawled_pages,
                 "aggregated_text": aggregated_text[:6000]
             }, ensure_ascii=False))]
+
+        elif name == "web_trace_claim":
+            claim_text = arguments["claim_text"]
+            project = arguments.get("project", "default")
+            
+            try:
+                import sqlite3
+                from owl_shared_intelligence import _OWL_DB_PATH
+                
+                with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cursor = conn.execute("""
+                        SELECT id, memory_id, claim_text, source_url, source_trust, fetched_at, is_contradicted 
+                        FROM web_provenance_chain
+                        WHERE claim_text LIKE ?
+                        ORDER BY fetched_at DESC LIMIT 50
+                    """, (f"%{claim_text}%",))
+                    rows = [dict(r) for r in cursor.fetchall()]
+                    
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "success",
+                    "claim_queried": claim_text,
+                    "provenance_chain": rows
+                }, indent=2))]
+            except Exception as trace_err:
+                return [TextContent(type="text", text=json.dumps({
+                    "error": f"Failed to trace claim: {str(trace_err)}"
+                }))]
 
         else:
             return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]

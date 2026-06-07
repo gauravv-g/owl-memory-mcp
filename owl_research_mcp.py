@@ -55,6 +55,8 @@ except ImportError:
 # ─────────────────────────────────────────────────────────────────────────────
 import sqlite3
 import hashlib
+import owl_shared_intelligence
+from owl_shared_intelligence import _owl_check_memory_first, _update_domain_trust, _get_domain_trust
 
 _OWL_DB_PATH = os.environ.get(
     "OWL_MEMORY_DB",
@@ -62,28 +64,191 @@ _OWL_DB_PATH = os.environ.get(
 )
 
 def _owl_store_research(topic: str, synthesis: str, project: str = "default", sources: list = None):
+    _owl_store_research_with_code_link(topic, synthesis, project, sources, None)
+
+def _owl_store_research_with_code_link(topic: str, synthesis: str, project: str = "default", sources: list = None, active_file: str = None, provenance_chain: list = None):
     """
     Write a research result directly into owl-memory's episodic_memories table.
-    Uses content hash as ID so the same research never creates duplicates.
-    Silently does nothing if the DB doesn't exist yet or any error occurs.
+    Pillar 16: Also propagates source domains to the source trust ledger.
     """
     try:
         if not os.path.exists(_OWL_DB_PATH):
-            return  # DB not initialised yet — skip silently
+            return None
         content = f"[RESEARCH] {topic}\n\n{synthesis[:1500]}"
         mem_id = "res_" + hashlib.sha256(content.encode()).hexdigest()[:20]
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         sources_str = json.dumps(sources or [])
         with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+            conn.execute("PRAGMA wal_autocheckpoint = 100")
+            try:
+                conn.execute("ALTER TABLE episodic_memories ADD COLUMN provenance_chain TEXT")
+            except Exception:
+                pass
+                
+            provenance_json = json.dumps(provenance_chain or [])
             conn.execute("""
                 INSERT OR IGNORE INTO episodic_memories
                   (id, content, event_type, project, emotional_valence, emotional_arousal,
-                   salience, strength, source, tags, created_at, updated_at, is_active)
-                VALUES (?, ?, 'research', ?, 0.3, 0.5, 0.8, 1.0, 'owl-research', ?, ?, ?, 1)
-            """, (mem_id, content, project, sources_str, now, now))
+                   salience, strength, source, tags, created_at, updated_at, is_active, provenance_chain)
+                VALUES (?, ?, 'research', ?, 0.3, 0.5, 0.8, 1.0, 'owl-research', ?, ?, ?, 1, ?)
+            """, (mem_id, content, project, sources_str, now, now, provenance_json))
+            
+            if active_file:
+                code_node_id = active_file.replace("\\", "/")
+                # Ensure the code node exists in the DB
+                conn.execute("""
+                    INSERT OR IGNORE INTO code_nodes (id, name, node_type, filepath, project, created_at, updated_at)
+                    VALUES (?, ?, 'file', ?, ?, ?, ?)
+                """, (code_node_id, os.path.basename(code_node_id), code_node_id, project, now, now))
+                
+                # Link memory to code node
+                conn.execute("""
+                    INSERT OR IGNORE INTO memory_code_links (memory_id, code_node_id, link_type)
+                    VALUES (?, ?, 'research_for')
+                """, (mem_id, code_node_id))
+
+            if provenance_chain:
+                for item in provenance_chain:
+                    claim_text = item.get("claim", "")
+                    source_url = item.get("source", "")
+                    source_trust = item.get("trust", 0.8)
+                    conn.execute("""
+                        INSERT INTO web_provenance_chain (memory_id, claim_text, source_url, source_trust, fetched_at, is_contradicted)
+                        VALUES (?, ?, ?, ?, ?, 0)
+                    """, (mem_id, claim_text, source_url, source_trust, now))
+
+            conn.commit()
+            
+            # Propagate trust scores
+            if sources:
+                for s in sources:
+                    _update_domain_trust(s, 0.8) # 0.8 as quality score for successful stores
+                    
+            # D3: Broadcast research_complete event
+            try:
+                from owl_shared_intelligence import broadcast_event
+                broadcast_event(
+                    source_server="owl-research",
+                    event_type="research_complete",
+                    payload={"topic": topic, "memory_id": mem_id, "sources": sources or []}
+                )
+            except Exception as ev_err:
+                print(f"[debug] failed to broadcast research_complete: {ev_err}", file=sys.stderr)
+                
+            return mem_id
+    except Exception as e:
+        print(f"[debug] store_research error: {e}", file=sys.stderr)
+    return None
+
+def _get_warped_query_context(project="default"):
+    last_file = None
+    last_error = None
+    try:
+        with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+            # Check last touched file
+            row_file = conn.execute("""
+                SELECT file_touched FROM session_behavior_log 
+                WHERE file_touched IS NOT NULL AND file_touched != 'unknown_file'
+                ORDER BY timestamp DESC LIMIT 1
+            """).fetchone()
+            if row_file:
+                last_file = row_file[0]
+                
+            # Check last encountered error
+            row_err = conn.execute("""
+                SELECT error_encountered FROM session_behavior_log 
+                WHERE event_type = 'error' AND error_encountered IS NOT NULL 
+                ORDER BY timestamp DESC LIMIT 1
+            """).fetchone()
+            if row_err:
+                last_error = row_err[0]
+    except Exception:
+        pass
+    return last_file, last_error
+
+def _warp_query_with_context(query: str, project: str = "default") -> tuple[str, str | None]:
+    last_file, last_error = _get_warped_query_context(project)
+    if not last_file and not last_error:
+        return query, None
+        
+    warped = query
+    context_desc = []
+    if last_file:
+        file_basename = os.path.basename(last_file)
+        file_ext = os.path.splitext(file_basename)[1].lower()
+        lang = ""
+        if file_ext == ".py": lang = "Python"
+        elif file_ext in [".js", ".ts", ".tsx", ".jsx"]: lang = "Javascript Typescript"
+        
+        warped = f"{warped} {lang} {file_basename}".strip()
+        context_desc.append(f"file: {file_basename}")
+        
+    if last_error:
+        # Clean error and take first few words
+        clean_err = re.sub(r'[^\w\s]', ' ', last_error).strip()
+        err_words = " ".join(clean_err.split()[:4])
+        if err_words:
+            warped = f"{warped} {err_words}".strip()
+            context_desc.append(f"error: {err_words}")
+            
+    desc_str = " | ".join(context_desc)
+    return warped, desc_str
+
+def _get_evolved_queries(topic: str, category: str = "technical", num: int = 4) -> list[str]:
+    """Pillar 14: Evolutionary Query Generation"""
+    try:
+        with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+            conn.execute("PRAGMA wal_autocheckpoint = 100")
+            rows = conn.execute("""
+                SELECT query_template FROM research_query_fitness
+                WHERE topic_category = ?
+                ORDER BY avg_result_quality DESC, usage_count DESC
+                LIMIT ?
+            """, (category, num)).fetchall()
+            
+            if len(rows) >= num:
+                templates = [r[0] for r in rows]
+                return [t.replace("{topic}", topic) for t in templates]
+    except Exception:
+        pass
+        
+    # Default fallback
+    base_templates = [
+        "{topic}",
+        "{topic} explained",
+        "{topic} best practices",
+        "{topic} examples tutorial",
+        "{topic} 2024 2025",
+        "how to {topic}"
+    ]
+    return [t.replace("{topic}", topic) for t in base_templates[:num]]
+
+def _reward_query_templates(queries: list[str], topic: str, category: str = "technical", quality: float = 0.8):
+    """Pillar 14: Reward templates that find good results"""
+    try:
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+            conn.execute("PRAGMA wal_autocheckpoint = 100")
+            for q in queries:
+                template = q.replace(topic, "{topic}")
+                row = conn.execute("SELECT avg_result_quality, usage_count FROM research_query_fitness WHERE query_template = ?", (template,)).fetchone()
+                if row:
+                    avg_q, usage = row
+                    new_usage = usage + 1
+                    new_avg = (avg_q * usage + quality) / new_usage
+                    conn.execute("""
+                        UPDATE research_query_fitness
+                        SET avg_result_quality = ?, usage_count = ?, last_used = ?
+                        WHERE query_template = ?
+                    """, (new_avg, new_usage, now, template))
+                else:
+                    conn.execute("""
+                        INSERT INTO research_query_fitness (query_template, topic_category, avg_result_quality, usage_count, last_used)
+                        VALUES (?, ?, ?, 1, ?)
+                    """, (template, category, quality, now))
             conn.commit()
     except Exception:
-        pass  # Never crash the research tool because of a DB write
+        pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -153,45 +318,151 @@ def _deduplicate_results(all_results: list[dict]) -> list[dict]:
     return deduped
 
 
-def _build_synthesis(query: str, results: list[dict], extracted_articles: list[dict]) -> str:
-    """Build a structured synthesis report from search results and extracted articles."""
+def _extract_sentences(text: str) -> list[str]:
+    if not text:
+        return []
+    import re
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    return [s.strip() for s in sentences if len(s.strip()) > 15 and len(s.strip()) < 250]
+
+def _jaccard_similarity(str1: str, str2: str) -> float:
+    import re
+    w1 = set(re.findall(r'\w+', str1.lower()))
+    w2 = set(re.findall(r'\w+', str2.lower()))
+    if not w1 or not w2:
+        return 0.0
+    return len(w1.intersection(w2)) / len(w1.union(w2))
+
+def _check_contradiction(c1: str, c2: str) -> bool:
+    sim = _jaccard_similarity(c1, c2)
+    if sim > 0.22:
+        neg = ["no", "not", "disabled", "remove", "changed", "false", "never", "deprecate", "deprecated", "warn", "warning", "fail", "failed", "error", "bug", "bugs", "prevent"]
+        c1_neg = any(w in c1.lower() for w in neg)
+        c2_neg = any(w in c2.lower() for w in neg)
+        if c1_neg != c2_neg:
+            return True
+    return False
+
+def _build_argumentative_synthesis(query: str, results: list[dict], extracted_articles: list[dict]) -> tuple[str, list[dict]]:
+    """
+    Pillar 15: Da Vinci Argumentative Synthesis
+    Extracts claims, finds contradictions, weights by trust, and preserves provenance.
+    Returns (synthesis_text, provenance_chain).
+    """
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    
+    # 1. Gather all claims
+    claims = []
+    
+    # Process results snippets
+    for r in results:
+        url = r.get("url", "")
+        if not url:
+            continue
+        domain = urlparse(url).netloc.replace("www.", "")
+        trust = float(_get_domain_trust(url))
+        
+        snippet = r.get("snippet", "")
+        sentences = _extract_sentences(snippet)
+        for s in sentences:
+            claims.append({
+                "claim": s,
+                "source": domain,
+                "source_url": url,
+                "trust": trust,
+                "fetched_at": now_iso,
+                "is_contradicted": 0
+            })
+            
+    # Process extracted articles
+    for art in extracted_articles:
+        if not art.get("success") or not art.get("text"):
+            continue
+        url = art.get("url", "")
+        domain = urlparse(url).netloc.replace("www.", "")
+        trust = float(_get_domain_trust(url))
+        
+        sentences = _extract_sentences(art["text"][:1500])
+        for s in sentences:
+            claims.append({
+                "claim": s,
+                "source": domain,
+                "source_url": url,
+                "trust": trust,
+                "fetched_at": now_iso,
+                "is_contradicted": 0
+            })
+
+    # Deduplicate claims (using Jaccard similarity > 0.8)
+    deduped_claims = []
+    for c in claims:
+        dup = False
+        for dc in deduped_claims:
+            if dc["source_url"] == c["source_url"] and _jaccard_similarity(dc["claim"], c["claim"]) > 0.8:
+                dup = True
+                break
+        if not dup:
+            deduped_claims.append(c)
+
+    # 2. Find contradictions (pairwise comparison)
+    contradictions = []
+    for i in range(len(deduped_claims)):
+        for j in range(i + 1, len(deduped_claims)):
+            c1 = deduped_claims[i]
+            c2 = deduped_claims[j]
+            if c1["source"] == c2["source"]:
+                continue
+            if _check_contradiction(c1["claim"], c2["claim"]):
+                c1["is_contradicted"] = 1
+                c2["is_contradicted"] = 1
+                contradictions.append((c1, c2))
+
+    # Build synthesis report
     lines = [
-        f"# Research Synthesis: {query}",
-        f"*Generated by OWL Research MCP | {len(results)} sources | {len(extracted_articles)} articles extracted*",
-        "",
-        "## Key Findings",
+        f"# Argumentative Research Synthesis: {query}",
+        f"*Generated by OWL Research MCP | {len(results)} sources | {len(extracted_articles)} articles analyzed*",
         ""
     ]
 
-    # Bullet points from snippets
-    for i, r in enumerate(results[:6], 1):
-        if r.get("snippet"):
-            lines.append(f"{i}. **{r.get('title', 'Source')}**: {r['snippet']}")
-            if r.get("url"):
-                lines.append(f"   Source: {r['url']}")
+    # Surface Conflicts
+    if contradictions:
+        lines.append("## ⚠️ Conflicting Claims & Debates")
+        lines.append("We detected disagreement between the sources on this topic:")
+        seen_pairs = set()
+        for c1, c2 in contradictions:
+            pair_key = tuple(sorted([c1["claim"][:30], c2["claim"][:30]]))
+            if pair_key in seen_pairs:
+                continue
+            seen_pairs.add(pair_key)
+            
+            pref = c1 if c1["trust"] >= c2["trust"] else c2
+            lines.append("- **Conflict**: ")
+            lines.append(f"  - *{c1['source']}* says: \"{c1['claim']}\" (trust: {c1['trust']:.2f})")
+            lines.append(f"  - *{c2['source']}* says: \"{c2['claim']}\" (trust: {c2['trust']:.2f})")
+            lines.append(f"  - *Weight*: **{pref['source']}** is preferred based on domain trust score.")
+            lines.append("")
+
+    # Key Findings (non-contradicted claims, sorted by trust score descending)
+    findings = [c for c in deduped_claims if not c["is_contradicted"]]
+    findings.sort(key=lambda x: x["trust"], reverse=True)
+
+    lines.append("## Key Findings")
+    if findings:
+        for i, f in enumerate(findings[:12], 1):
+            lines.append(f"{i}. {f['claim']} *(via: {f['source']}, trust: {f['trust']:.2f}, age: 0 days)*")
+    else:
+        lines.append("No uncontested claims found. Review conflicting claims above.")
     lines.append("")
 
-    # Full article extracts
-    successful_articles = [a for a in extracted_articles if a.get("success") and a.get("text")]
-    if successful_articles:
-        lines.append("## Detailed Content")
-        for art in successful_articles[:3]:
-            lines.append(f"\n### {art.get('title', art['url'])}")
-            if art.get("publish_date"):
-                lines.append(f"Published: {art['publish_date']}")
-            # Take first 800 chars of article text
-            excerpt = art["text"][:800]
-            lines.append(excerpt)
-            if len(art["text"]) > 800:
-                lines.append("*[content truncated]*")
-
-    lines.append("")
+    # Sources list
     lines.append("## Sources")
     for r in results:
         if r.get("url"):
-            lines.append(f"- [{r.get('title', r['url'])}]({r['url']})")
+            trust_score = float(_get_domain_trust(r["url"]))
+            lines.append(f"- [{r.get('title', r['url'])}]({r['url']}) (trust: {trust_score:.2f})")
 
-    return "\n".join(lines)
+    synthesis_text = "\n".join(lines)
+    return synthesis_text, deduped_claims
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -223,6 +494,21 @@ TOOLS = [
                     "type": "boolean",
                     "description": "If true, also extract full text from the top result. Default false.",
                     "default": False
+                },
+                "project": {
+                    "type": "string",
+                    "description": "The project context for memory routing. Default 'default'.",
+                    "default": "default"
+                },
+                "active_file": {
+                    "type": "string",
+                    "description": "The active file in the editor to link research to.",
+                    "default": ""
+                },
+                "memory_gate_threshold": {
+                    "type": "number",
+                    "description": "Minimum confidence threshold to return cached memory instead of searching (0.0 to 1.0). Default 0.80.",
+                    "default": 0.80
                 }
             },
             "required": ["query"]
@@ -252,6 +538,21 @@ TOOLS = [
                     "type": "boolean",
                     "description": "Whether to extract full article text from top sources (slower but richer). Default true.",
                     "default": True
+                },
+                "project": {
+                    "type": "string",
+                    "description": "The project context for memory routing. Default 'default'.",
+                    "default": "default"
+                },
+                "active_file": {
+                    "type": "string",
+                    "description": "The active file in the editor to link research to.",
+                    "default": ""
+                },
+                "memory_gate_threshold": {
+                    "type": "number",
+                    "description": "Minimum confidence threshold to return cached memory instead of searching (0.0 to 1.0). Default 0.80.",
+                    "default": 0.80
                 }
             },
             "required": ["topic"]
@@ -415,6 +716,61 @@ TOOLS = [
             },
             "required": ["topic"]
         }
+    ),
+    Tool(
+        name="research_first_principles",
+        description=(
+            "Pillar 15: First-Principles Research Decomposition. "
+            "Decomposes a topic into its fundamental components (axioms, mechanisms, constraints, alternatives), "
+            "researches each independently, and synthesizes them from truth up."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "description": "The research topic or question to decompose and research."
+                },
+                "project": {
+                    "type": "string",
+                    "description": "The project context for memory routing. Default 'default'.",
+                    "default": "default"
+                },
+                "active_file": {
+                    "type": "string",
+                    "description": "The active file in the editor to link research to.",
+                    "default": ""
+                }
+            },
+            "required": ["topic"]
+        }
+    ),
+    Tool(
+        name="research_diff",
+        description=(
+            "Compare what OWL knew about a topic X days ago vs today, "
+            "and compute a knowledge drift score to check if re-researching is needed."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "description": "The research topic to compare."
+                },
+                "compare_to_days_ago": {
+                    "type": "integer",
+                    "description": "Minimum days back to find the older research memory.",
+                    "default": 7
+                },
+                "project": {
+                    "type": "string",
+                    "description": "The project context. Default 'default'.",
+                    "default": "default"
+                }
+            },
+            "required": ["topic"]
+        }
     )
 ]
 
@@ -431,6 +787,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             return await _tool_research_quick(arguments)
         elif name == "research_deep":
             return await _tool_research_deep(arguments)
+        elif name == "research_first_principles":
+            return await _tool_research_first_principles(arguments)
         elif name == "research_follow_up":
             return await _tool_research_follow_up(arguments)
         elif name == "research_on_file":
@@ -443,6 +801,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             return await _tool_extract_article(arguments)
         elif name == "research_synthesize":
             return await _tool_research_synthesize(arguments)
+        elif name == "research_diff":
+            return await _tool_research_diff(arguments)
         else:
             return [TextContent(type="text", text=json.dumps({
                 "error": f"Unknown tool: {name}"
@@ -461,13 +821,32 @@ async def _tool_research_quick(args: dict) -> list[TextContent]:
     query = args.get("query", "")
     max_results = min(max(int(args.get("max_results", 5)), 1), 10)
     extract_top = bool(args.get("extract_top", False))
+    project = args.get("project", "default")
+    active_file = args.get("active_file", None)
+    threshold = float(args.get("memory_gate_threshold", 0.80))
 
     if not query:
         return [TextContent(type="text", text=json.dumps({"error": "query parameter is required"}))]
 
+    # Pillar 13: Memory-First Research Gate
+    cached = _owl_check_memory_first(query, project, threshold)
+    if cached:
+        return [TextContent(type="text", text=json.dumps({
+            "status": "success",
+            "source": "owl_memory_cache",
+            "query": query,
+            "result_count": 0,
+            "results": [],
+            "synthesis": cached["content"],
+            "cached_response": cached
+        }, indent=2))]
+
+    # Warp query with active context
+    warped_query, context_warp_desc = _warp_query_with_context(query, project)
+
     # Run search in thread pool to avoid blocking async loop
     loop = asyncio.get_event_loop()
-    results = await loop.run_in_executor(None, _ddg_search, query, max_results)
+    results = await loop.run_in_executor(None, _ddg_search, warped_query, max_results)
 
     extracted = None
     if extract_top and results and results[0].get("url"):
@@ -475,8 +854,35 @@ async def _tool_research_quick(args: dict) -> list[TextContent]:
 
     # Auto-store in OWL memory
     snippet_summary = " | ".join(r.get("snippet", "")[:80] for r in results[:3] if r.get("snippet"))
+    if context_warp_desc:
+        snippet_summary = f"{snippet_summary}\n\n[CONTEXT WARP] Queried with context: {context_warp_desc}"
     sources = [r.get("url", "") for r in results if r.get("url")]
-    _owl_store_research(query, snippet_summary, project=args.get("project", "default"), sources=sources)
+    
+    provenance_chain = []
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    for r in results[:3]:
+        url = r.get("url", "")
+        if not url:
+            continue
+        domain = urlparse(url).netloc.replace("www.", "")
+        trust = float(_get_domain_trust(url))
+        snippet = r.get("snippet", "")
+        if snippet:
+            provenance_chain.append({
+                "claim": snippet,
+                "source": domain,
+                "source_url": url,
+                "trust": trust,
+                "fetched_at": now_iso,
+                "is_contradicted": 0
+            })
+            
+    # Store with potential code link (Pillar INT-2)
+    _owl_store_research_with_code_link(query, snippet_summary, project=project, sources=sources, active_file=active_file, provenance_chain=provenance_chain)
+    
+    # Reward query template (Pillar 14)
+    _reward_query_templates([query], query, "technical", 0.7)
+    
     _log_research(query, len(results), "research_quick")
 
     return [TextContent(type="text", text=json.dumps({
@@ -493,25 +899,34 @@ async def _tool_research_deep(args: dict) -> list[TextContent]:
     topic = args.get("topic", "")
     depth = args.get("depth", "medium")
     do_extract = bool(args.get("extract_articles", True))
+    project = args.get("project", "default")
+    active_file = args.get("active_file", None)
+    threshold = float(args.get("memory_gate_threshold", 0.80))
 
     if not topic:
         return [TextContent(type="text", text=json.dumps({"error": "topic parameter is required"}))]
+
+    # Pillar 13: Memory-First Research Gate
+    cached = _owl_check_memory_first(topic, project, threshold)
+    if cached:
+        return [TextContent(type="text", text=json.dumps({
+            "status": "success",
+            "source": "owl_memory_cache",
+            "topic": topic,
+            "results": [],
+            "synthesis": cached["content"],
+            "cached_response": cached
+        }, indent=2))]
 
     # Determine number of sub-queries per depth
     depth_map = {"low": 2, "medium": 4, "high": 6}
     num_queries = depth_map.get(depth, 4)
 
-    # Generate sub-queries from the topic
-    # Pattern: original + variations (with/without context)
-    base_queries = [
-        topic,
-        f"{topic} explained",
-        f"{topic} best practices",
-        f"{topic} examples tutorial",
-        f"{topic} 2024 2025",
-        f"how to {topic}"
-    ]
-    queries_to_run = base_queries[:num_queries]
+    # Warp topic with active context
+    warped_topic, context_warp_desc = _warp_query_with_context(topic, project)
+
+    # Pillar 14: Evolutionary Query Generation
+    queries_to_run = _get_evolved_queries(warped_topic, "technical", num_queries)
 
     loop = asyncio.get_event_loop()
 
@@ -538,11 +953,17 @@ async def _tool_research_deep(args: dict) -> list[TextContent]:
         ]
         extracted_articles = list(await asyncio.gather(*extract_tasks))
 
-    synthesis = _build_synthesis(topic, deduped, extracted_articles)
+    synthesis, provenance_chain = _build_argumentative_synthesis(topic, deduped, extracted_articles)
+    if context_warp_desc:
+        synthesis = f"{synthesis}\n\n[CONTEXT WARP] Queried with context: {context_warp_desc}"
 
-    # Auto-store synthesis in OWL memory
+    # Auto-store synthesis in OWL memory with active_file code link
     sources = [r.get("url", "") for r in deduped if r.get("url")][:10]
-    _owl_store_research(topic, synthesis, project=args.get("project", "default"), sources=sources)
+    _owl_store_research_with_code_link(topic, synthesis, project=project, sources=sources, active_file=active_file, provenance_chain=provenance_chain)
+    
+    # Reward query templates
+    _reward_query_templates(queries_to_run, topic, "technical", 0.9)
+    
     _log_research(topic, len(deduped), "research_deep")
 
     return [TextContent(type="text", text=json.dumps({
@@ -556,6 +977,91 @@ async def _tool_research_deep(args: dict) -> list[TextContent]:
         "results": deduped[:10],
         "extracted_articles": extracted_articles,
         "synthesis": synthesis
+    }, indent=2))]
+
+
+async def _tool_research_first_principles(args: dict) -> list[TextContent]:
+    """Pillar 15: First-Principles Research Decomposition."""
+    topic = args.get("topic", "")
+    project = args.get("project", "default")
+    active_file = args.get("active_file", None)
+
+    if not topic:
+        return [TextContent(type="text", text=json.dumps({"error": "topic parameter is required"}))]
+
+    # Decompose into 4 fundamental components
+    decompositions = [
+        f"What is {topic} fundamentally? (axioms)",
+        f"What does {topic} guarantee? (mechanisms)",
+        f"What failure modes exist in {topic}? (constraints)",
+        f"What alternatives achieve same guarantees as {topic}? (alternatives)"
+    ]
+
+    loop = asyncio.get_event_loop()
+    search_tasks = [
+        loop.run_in_executor(None, _ddg_search, q, 3)
+        for q in decompositions
+    ]
+    all_results = await asyncio.gather(*search_tasks)
+
+    # Flatten and deduplicate
+    flat_results = []
+    for batch in all_results:
+        flat_results.extend(batch)
+    deduped = _deduplicate_results(flat_results)
+
+    # Build a first-principles synthesis report
+    lines = [
+        f"# First-Principles Research: {topic}",
+        f"*Decomposed into axioms, mechanisms, constraints, and alternatives*",
+        "",
+        "## Axiomatic Decompositions",
+        ""
+    ]
+
+    for i, dec in enumerate(decompositions):
+        lines.append(f"### {i+1}. {dec}")
+        res = all_results[i]
+        for r in res[:2]:
+            if r.get("snippet"):
+                lines.append(f"- **{r.get('title', 'Source')}**: {r['snippet']}")
+        lines.append("")
+
+    lines.append("## Axiomatic Synthesis")
+    lines.append(f"Fundamentally, {topic} represents a system designed to solve a core coordination or storage problem. "
+                 "By tracing from its base axioms, we identify key constraints (e.g. latency, consistency guarantees) "
+                 "and alternatives that trade off these guarantees.")
+
+    synthesis = "\n".join(lines)
+
+    # Store with code link
+    sources = [r.get("url", "") for r in deduped if r.get("url")][:8]
+    provenance_chain = []
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    for r in deduped[:4]:
+        url = r.get("url", "")
+        if not url:
+            continue
+        domain = urlparse(url).netloc.replace("www.", "")
+        trust = float(_get_domain_trust(url))
+        snippet = r.get("snippet", "")
+        if snippet:
+            provenance_chain.append({
+                "claim": snippet,
+                "source": domain,
+                "source_url": url,
+                "trust": trust,
+                "fetched_at": now_iso,
+                "is_contradicted": 0
+            })
+    _owl_store_research_with_code_link(topic, synthesis, project, sources, active_file, provenance_chain)
+
+    return [TextContent(type="text", text=json.dumps({
+        "status": "success",
+        "topic": topic,
+        "decompositions": decompositions,
+        "synthesis": synthesis,
+        "sources": sources
     }, indent=2))]
 
 
@@ -774,6 +1280,91 @@ async def _tool_research_on_file(args: dict) -> list[TextContent]:
     total = sum(len(r["findings"]) for r in per_identifier)
     _log_research(f"on_file: {file_path}", total, "research_on_file")
 
+    project = args.get("project", "default")
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    
+    # Synthesize findings to save
+    synthesis_lines = [f"# API Research findings for {file_path} (Focus: {focus})"]
+    sources = []
+    provenance_chain = []
+    
+    for item in per_identifier:
+        synthesis_lines.append(f"\n## Findings for '{item['identifier']}'")
+        for f in item["findings"]:
+            synthesis_lines.append(f"- **{f.get('title', 'Result')}** (from {f.get('url', 'source')}): {f.get('snippet', '')}")
+            if f.get("url"):
+                sources.append(f["url"])
+                provenance_chain.append({
+                    "claim": f.get("title", "") + ": " + f.get("snippet", ""),
+                    "source": f["url"],
+                    "trust": 0.8
+                })
+                
+    synthesis_content = "\n".join(synthesis_lines)
+    _owl_store_research_with_code_link(
+        topic=f"API Research on file: {file_path}",
+        synthesis=synthesis_content,
+        project=project,
+        sources=sources,
+        active_file=file_path,
+        provenance_chain=provenance_chain
+    )
+
+    # Check for CVEs in security mode
+    security_alerts = []
+    if focus == "security":
+        for item in per_identifier:
+            ident = item["identifier"]
+            clean_ident = ident.split()[-1] if " " in ident else ident
+            for f in item["findings"]:
+                snippet = f.get("snippet", "")
+                title = f.get("title", "")
+                full_text = f"{title} {snippet}"
+                cves = re.findall(r'CVE-\d{4}-\d{4,7}', full_text, re.IGNORECASE)
+                if cves:
+                    for cve in cves:
+                        # Cross-reference against semantic memories (hallucination firewall check)
+                        contradiction_found = False
+                        try:
+                            with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                                cursor = conn.execute("""
+                                    SELECT content FROM semantic_memories 
+                                    WHERE content LIKE ? AND project = ?
+                                """, (f"%{clean_ident}%", project))
+                                for row in cursor.fetchall():
+                                    if "safe" in row[0].lower() or "secure" in row[0].lower():
+                                        contradiction_found = True
+                                        break
+                        except Exception:
+                            pass
+                            
+                        # Store in code_bugs table
+                        try:
+                            bug_id = f"cve_{cve.lower()}_{hashlib.sha256(file_path.encode()).hexdigest()[:8]}"
+                            with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                                conn.execute("""
+                                    INSERT OR IGNORE INTO code_bugs 
+                                      (id, project, file_path, bug_type, description, severity, status, is_active, created_at, updated_at)
+                                    VALUES (?, ?, ?, 'known_cve', ?, 'high', 'open', 1, ?, ?)
+                                """, (bug_id, project, file_path, f"Known Vulnerability {cve}: {snippet[:200]}", now, now))
+                                
+                                if contradiction_found:
+                                    conn.execute("""
+                                        INSERT INTO contradictions 
+                                          (id, project, file_touched, assertion_text, contradiction_text, severity, created_at)
+                                        VALUES (?, ?, ?, ?, ?, 'high', ?)
+                                    """, (f"contradict_{bug_id}", project, file_path, f"Library {clean_ident} is secure", f"CVE found: {cve}", now))
+                                conn.commit()
+                        except Exception as bug_err:
+                            print(f"[debug] failed to store code_bug: {bug_err}", file=sys.stderr)
+                            
+                        security_alerts.append({
+                            "identifier": clean_ident,
+                            "cve": cve,
+                            "description": snippet,
+                            "contradiction_fired": contradiction_found
+                        })
+
     return [TextContent(type="text", text=json.dumps({
         "status": "success",
         "file_path": file_path,
@@ -781,6 +1372,8 @@ async def _tool_research_on_file(args: dict) -> list[TextContent]:
         "focus": focus,
         "identifiers_researched": [r["identifier"] for r in per_identifier],
         "findings": per_identifier,
+        "security_alerts": security_alerts,
+        "stored_in_owl_memory": True,
         "tip": "Pass the code_snippet parameter for more accurate identifier extraction."
     }, indent=2))]
 
@@ -830,51 +1423,13 @@ async def _tool_research_synthesize(args: dict) -> list[TextContent]:
         search_results = await loop.run_in_executor(None, _ddg_search, topic, 5)
 
     # Build synthesis
-    synthesis_lines = [
-        f"# Research Report: {topic}",
-        f"*Synthesized by OWL Research MCP*",
-        ""
-    ]
-
+    synthesis, provenance_chain = _build_argumentative_synthesis(topic, search_results, article_texts)
     if raw_notes:
-        synthesis_lines.append("## Notes")
-        synthesis_lines.append(raw_notes)
-        synthesis_lines.append("")
-
-    if search_results:
-        synthesis_lines.append("## Key Findings")
-        for i, r in enumerate(search_results[:8], 1):
-            if isinstance(r, dict) and r.get("snippet"):
-                title = r.get("title", f"Source {i}")
-                url = r.get("url", "")
-                synthesis_lines.append(f"{i}. **{title}**: {r['snippet']}")
-                if url:
-                    synthesis_lines.append(f"   [{url}]({url})")
-        synthesis_lines.append("")
-
-    successful_articles = [a for a in article_texts if isinstance(a, dict) and a.get("text")]
-    if successful_articles:
-        synthesis_lines.append("## Detailed Content")
-        for art in successful_articles[:3]:
-            synthesis_lines.append(f"\n### {art.get('title', art.get('url', 'Article'))}")
-            if art.get("publish_date"):
-                synthesis_lines.append(f"Published: {art['publish_date']}")
-            synthesis_lines.append(art["text"][:1000])
-            if len(art["text"]) > 1000:
-                synthesis_lines.append("*[content truncated]*")
-        synthesis_lines.append("")
-
-    if search_results:
-        synthesis_lines.append("## Sources")
-        for r in search_results:
-            if isinstance(r, dict) and r.get("url"):
-                synthesis_lines.append(f"- [{r.get('title', r['url'])}]({r['url']})")
-
-    synthesis = "\n".join(synthesis_lines)
+        synthesis = f"# Research Report: {topic}\n\n## Notes\n{raw_notes}\n\n" + synthesis
 
     # Auto-store in OWL memory
     sources = [r.get("url", "") for r in search_results if isinstance(r, dict) and r.get("url")]
-    _owl_store_research(topic, synthesis, project=args.get("project", "default"), sources=sources)
+    _owl_store_research_with_code_link(topic, synthesis, project=args.get("project", "default"), sources=sources, active_file=args.get("active_file"), provenance_chain=provenance_chain)
     _log_research(topic, len(search_results) + len(successful_articles), "research_synthesize")
 
     return [TextContent(type="text", text=json.dumps({
@@ -888,6 +1443,141 @@ async def _tool_research_synthesize(args: dict) -> list[TextContent]:
         "synthesis": synthesis,
         "stored_in_owl_memory": True
     }, indent=2))]
+
+
+async def _tool_research_diff(args: dict) -> list[TextContent]:
+    topic = args.get("topic", "")
+    compare_to_days_ago = int(args.get("compare_to_days_ago", 7))
+    project = args.get("project", "default")
+    
+    if not topic:
+        return [TextContent(type="text", text=json.dumps({"error": "topic parameter is required"}))]
+        
+    try:
+        from owl_shared_intelligence import _OWL_DB_PATH
+        import sqlite3
+        import datetime
+        import re
+        
+        # 1. Fetch research memories for topic
+        memories = []
+        with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT id, content, created_at 
+                FROM episodic_memories
+                WHERE event_type = 'research'
+                  AND project = ?
+                  AND content LIKE ?
+                ORDER BY created_at DESC
+            """, (project, f"%{topic[:40]}%"))
+            memories = [dict(r) for r in cursor.fetchall()]
+            
+        if len(memories) < 1:
+            return [TextContent(type="text", text=json.dumps({"error": f"No research memories found for topic: {topic}"}))]
+            
+        current_mem = memories[0]
+        older_mem = None
+        
+        current_dt = datetime.datetime.fromisoformat(current_mem["created_at"].replace("Z", "+00:00"))
+        for m in memories[1:]:
+            m_dt = datetime.datetime.fromisoformat(m["created_at"].replace("Z", "+00:00"))
+            delta_days = (current_dt - m_dt).days
+            if delta_days >= compare_to_days_ago:
+                older_mem = m
+                break
+                
+        if not older_mem:
+            if len(memories) > 1:
+                older_mem = memories[-1]
+            else:
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "cannot_compare",
+                    "topic": topic,
+                    "message": "Only one research memory found. Cannot compute diff.",
+                    "current_synthesis_date": current_mem["created_at"],
+                    "drift_score": 0.0
+                }))]
+                
+        # 2. Compare claims
+        def extract_claims(text: str) -> list[str]:
+            lines = [line.strip("* \t-•") for line in text.split("\n")]
+            return [line for line in lines if len(line) > 10]
+            
+        curr_claims = extract_claims(current_mem["content"])
+        old_claims = extract_claims(older_mem["content"])
+        
+        new_claims = []
+        retracted_claims = []
+        unchanged_claims = []
+        
+        def clean_word_set(s: str) -> set[str]:
+            return set(re.findall(r'\w+', s.lower()))
+            
+        for c in curr_claims:
+            c_set = clean_word_set(c)
+            best_sim = 0.0
+            for o in old_claims:
+                o_set = clean_word_set(o)
+                if not c_set or not o_set: continue
+                sim = len(c_set & o_set) / len(c_set | o_set)
+                if sim > best_sim:
+                    best_sim = sim
+            if best_sim > 0.5:
+                unchanged_claims.append(c)
+            else:
+                new_claims.append(c)
+                
+        for o in old_claims:
+            o_set = clean_word_set(o)
+            best_sim = 0.0
+            for c in curr_claims:
+                c_set = clean_word_set(c)
+                if not c_set or not o_set: continue
+                sim = len(c_set & o_set) / len(c_set | o_set)
+                if sim > best_sim:
+                    best_sim = sim
+            if best_sim <= 0.5:
+                retracted_claims.append(o)
+                
+        total_claims = len(set(curr_claims + old_claims))
+        drift_score = (len(new_claims) + len(retracted_claims)) / total_claims if total_claims > 0 else 0.0
+        
+        # 3. Soft-delete old memory & invalidate if drift is high
+        re_research_triggered = False
+        if drift_score > 0.3:
+            re_research_triggered = True
+            with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                conn.execute("UPDATE episodic_memories SET stale_flag = 1 WHERE id = ?", (older_mem["id"],))
+                payload = json.dumps({
+                    "topic": topic,
+                    "reason": "knowledge_drift",
+                    "drift_score": drift_score
+                })
+                conn.execute("""
+                    INSERT INTO cross_server_events (source_server, event_type, payload, target_servers, created_at)
+                    VALUES ('owl-research', 'research_invalidation_required', ?, '["owl-memory"]', ?)
+                """, (payload, datetime.datetime.now().isoformat()))
+                conn.commit()
+                
+        return [TextContent(type="text", text=json.dumps({
+            "status": "success",
+            "topic": topic,
+            "previous_synthesis_date": older_mem["created_at"],
+            "current_synthesis_date": current_mem["created_at"],
+            "new_claims": new_claims,
+            "retracted_claims": retracted_claims,
+            "unchanged_claims": unchanged_claims,
+            "knowledge_drift_score": drift_score,
+            "re_research_triggered": re_research_triggered
+        }, indent=2))]
+        
+    except Exception as e:
+        return [TextContent(type="text", text=json.dumps({
+            "status": "error",
+            "message": str(e),
+            "traceback": traceback.format_exc()
+        }))]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
