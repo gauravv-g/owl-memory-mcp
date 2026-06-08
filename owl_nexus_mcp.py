@@ -99,11 +99,6 @@ async def handle_plan(args):
             return {"error": f"Template not found: {template_id}"}
     else:
         tasks = _auto_decompose(goal, graph_id)
-    # Debug: check for duplicate IDs
-    task_ids = [t["id"] for t in tasks]
-    if len(task_ids) != len(set(task_ids)):
-        dupes = [tid for tid in task_ids if task_ids.count(tid) > 1]
-        return {"error": f"Duplicate task IDs generated: {dupes}"}
     with get_db() as conn:
         conn.execute("INSERT INTO task_graphs VALUES (?,?,?,?,?,?,?,?,?,?)",
             (graph_id,goal,"planned",now,now,None,len(tasks),0,0,0))
