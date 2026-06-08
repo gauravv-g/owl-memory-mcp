@@ -15,6 +15,7 @@ def _now():
 def _connect(db):
     conn = sqlite3.connect(db, timeout=10)
     conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -23,13 +24,15 @@ async def handle_sql_execute(args):
     if not db: return {"error": "database path required"}
     try:
         conn = _connect(db)
-        cur = conn.execute(query, params)
-        # Get column names from cursor.description (not Row.description)
-        cols = [d[0] for d in cur.description] if cur.description else []
-        rows = cur.fetchall()
-        data = [dict(zip(cols, row)) for row in rows[:1000]]
-        conn.close()
-        return {"columns": cols, "rows": data, "row_count": len(rows), "truncated": len(rows) > 1000}
+        try:
+            cur = conn.execute(query, params) if params else conn.execute(query)
+            cols = [d[0] for d in cur.description] if cur.description else []
+            rows = cur.fetchall()
+            data = [dict(zip(cols, row)) for row in rows[:1000]]
+            conn.commit()
+            return {"columns": cols, "rows": data, "row_count": len(rows), "truncated": len(rows) > 1000}
+        finally:
+            conn.close()
     except Exception as e: return {"error": str(e)}
 
 async def handle_sql_migrate(args):

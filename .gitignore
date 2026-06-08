@@ -53,3 +53,4 @@ logs/
 *.temp
 .owl-temp/
 *.pyc
+Dockerfile
