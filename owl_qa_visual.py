@@ -27,12 +27,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 # ── Storage paths ────────────────────────────────────────────────────────────
-_OWL_DB_PATH = os.environ.get(
+OWL_DB_PATH = os.environ.get(
     "OWL_MEMORY_DB",
     os.path.join(os.path.expanduser("~"), ".owl-memory", "memory-v5.db")
 )
 
-QA_SCREENSHOT_DIR = os.path.join(os.path.dirname(_OWL_DB_PATH), "qa-screenshots")
+QA_SCREENSHOT_DIR = os.path.join(os.path.dirname(OWL_DB_PATH), "qa-screenshots")
 os.makedirs(QA_SCREENSHOT_DIR, exist_ok=True)
 
 # ── Optional dependencies ────────────────────────────────────────────────────
@@ -676,8 +676,8 @@ def purge_old_screenshots(dry_run: bool = False) -> dict:
     try:
         # Get list of failing test screenshots from DB
         failing_shots = set()
-        if os.path.exists(_OWL_DB_PATH):
-            with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+        if os.path.exists(OWL_DB_PATH):
+            with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
                 try:
                     rows = conn.execute("""
                         SELECT screenshot_before, screenshot_after 
@@ -763,7 +763,7 @@ def store_qa_observation_in_owl(
     project: str = "default"
 ) -> Optional[str]:
     """Store a QA observation as an episodic memory in OWL."""
-    if not os.path.exists(_OWL_DB_PATH):
+    if not os.path.exists(OWL_DB_PATH):
         return None
     try:
         screen_type = vision_result.get("screen_type", "unknown")
@@ -792,7 +792,7 @@ def store_qa_observation_in_owl(
         arousal = 0.6 if has_issues else 0.2
         salience = 0.85 if has_issues else 0.6
 
-        with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+        with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
             conn.execute("""
                 INSERT OR IGNORE INTO episodic_memories
                   (id, content, event_type, project, emotional_valence,

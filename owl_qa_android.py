@@ -19,12 +19,12 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
-_OWL_DB_PATH = os.environ.get(
+OWL_DB_PATH = os.environ.get(
     "OWL_MEMORY_DB",
     os.path.join(os.path.expanduser("~"), ".owl-memory", "memory-v5.db")
 )
 
-QA_SCREENSHOT_DIR = os.path.join(os.path.dirname(_OWL_DB_PATH), "qa-screenshots")
+QA_SCREENSHOT_DIR = os.path.join(os.path.dirname(OWL_DB_PATH), "qa-screenshots")
 os.makedirs(QA_SCREENSHOT_DIR, exist_ok=True)
 
 

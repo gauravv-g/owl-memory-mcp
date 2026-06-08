@@ -25,10 +25,7 @@ import json
 import os
 import re
 import sys
-import time
 import traceback
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:
@@ -39,10 +36,7 @@ except ImportError:
     print("ERROR: mcp package not found.", file=sys.stderr)
     sys.exit(1)
 
-
-def _now():
-    return datetime.now(timezone.utc).isoformat() + "Z"
-
+import owl_shared_intelligence as shared
 
 def _detect_project(path):
     """Detect project type for workflow generation."""

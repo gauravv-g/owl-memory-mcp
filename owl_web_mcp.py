@@ -33,7 +33,7 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Any
 import owl_shared_intelligence
-from owl_shared_intelligence import _OWL_DB_PATH, _get_domain_trust, _notify_owl_memory_of_change, computeTemporalFreshness, invalidate_related_research
+from owl_shared_intelligence import OWL_DB_PATH, _get_domain_trust, _notify_owl_memory_of_change, computeTemporalFreshness, invalidate_related_research
 
 try:
     from mcp.server import Server
@@ -210,7 +210,7 @@ def _classify_semantic_changes(added_lines: list[str], removed_lines: list[str])
 def _compute_optimal_check_frequency(url: str) -> int:
     """Pillar 19: Tesla Resonant Adaptive Monitoring Frequency"""
     try:
-        with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+        with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
             conn.execute("PRAGMA wal_autocheckpoint = 100")
             rows = conn.execute("""
                 SELECT fetched_at, significant_change FROM web_page_history
@@ -900,7 +900,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 change_summary = f"{len(added)} lines added, {len(removed)} lines removed"
 
             try:
-                with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
                     conn.execute("PRAGMA wal_autocheckpoint = 100")
                     conn.execute("""
                         INSERT INTO web_page_history (url, label, content_hash, content_snapshot, significant_change, change_summary, fetched_at, css_selector)
@@ -1138,9 +1138,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             
             try:
                 import sqlite3
-                from owl_shared_intelligence import _OWL_DB_PATH
+                from owl_shared_intelligence import OWL_DB_PATH
                 
-                with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
                     conn.row_factory = sqlite3.Row
                     cursor = conn.execute("""
                         SELECT id, memory_id, claim_text, source_url, source_trust, fetched_at, is_contradicted 

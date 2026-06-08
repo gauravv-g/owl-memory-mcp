@@ -26,7 +26,7 @@ if WORKSPACE_DIR not in sys.path:
 
 # Import original MCP modules gracefully
 import owl_shared_intelligence
-from owl_shared_intelligence import _OWL_DB_PATH, _get_domain_trust, _update_domain_trust, computeTemporalFreshness
+from owl_shared_intelligence import OWL_DB_PATH, _get_domain_trust, _update_domain_trust, computeTemporalFreshness
 
 try:
     import creative_studio_mcp
@@ -73,7 +73,7 @@ def load_sqlite_vec(conn):
 
 # Establish database connection and run schema checks
 def get_db_connection():
-    conn = sqlite3.connect(_OWL_DB_PATH, timeout=10)
+    conn = sqlite3.connect(OWL_DB_PATH, timeout=10)
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA synchronous = NORMAL")

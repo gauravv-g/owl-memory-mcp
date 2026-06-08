@@ -21,10 +21,8 @@ import asyncio
 import json
 import os
 import sys
-import time
 import traceback
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 try:
@@ -35,16 +33,13 @@ except ImportError:
     print("ERROR: mcp package not found.", file=sys.stderr)
     sys.exit(1)
 
+import owl_shared_intelligence as shared
 # ─── Agent Registry (in-process) ──────────────────────────────────────────────
 
 _agents = {}  # agent_id -> agent info
 _agent_results = {}  # agent_id -> results
 _agent_history = []  # list of past agent executions
 _max_agents = 10
-
-
-def _now():
-    return datetime.now(timezone.utc).isoformat() + "Z"
 
 
 def _gen_id():
@@ -74,7 +69,7 @@ async def handle_spawn(args: dict) -> dict:
         "type": agent_type,
         "task": task,
         "status": "spawning",
-        "created_at": _now(),
+        "created_at": shared.now(),
         "timeout": timeout,
         "context": context,
         "dependencies": dependencies,
@@ -254,7 +249,7 @@ async def handle_plan(args: dict) -> dict:
         "plan_id": f"plan_{uuid.uuid4().hex[:8]}",
         "goal": goal,
         "strategy": strategy,
-        "created_at": _now(),
+        "created_at": shared.now(),
         "steps": []
     }
 
@@ -364,7 +359,7 @@ async def handle_cancel(args: dict) -> dict:
         return {"error": f"agent already in terminal state: {agent['status']}"}
 
     agent["status"] = "cancelled"
-    agent["completed_at"] = _now()
+    agent["completed_at"] = shared.now()
 
     # Add to history
     _agent_history.append({
@@ -372,7 +367,7 @@ async def handle_cancel(args: dict) -> dict:
         "type": agent["type"],
         "task": agent["task"][:100],
         "status": "cancelled",
-        "timestamp": _now()
+        "timestamp": shared.now()
     })
 
     return {"agent_id": agent_id, "status": "cancelled"}

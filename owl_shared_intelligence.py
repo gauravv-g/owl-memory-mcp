@@ -1,7 +1,8 @@
-# C:\Users\shiva\hermes-custom-mcps\owl_shared_intelligence.py
 """
-Shared Intelligence Layer for OWL MCP v6.0 (Python components)
-Bridges owl-research and owl-web with owl-memory SQLite database.
+Shared Intelligence Layer for OWL MCP
+======================================
+Utilities, constants, and DB schema shared across all MCP servers.
+Every server imports from this file instead of duplicating.
 """
 
 import os
@@ -11,15 +12,29 @@ import json
 import time
 import math
 import hashlib
+import re
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 
-_OWL_DB_PATH = os.environ.get(
+# ─── Shared Constants ─────────────────────────────────────────────────────────
+
+OWL_DB_PATH = os.environ.get(
     "OWL_MEMORY_DB",
     os.path.join(os.path.expanduser("~"), ".owl-memory", "memory-v5.db")
 )
 
-# Domain specific half-life (temporal relativity)
+SKIP_EXTENSIONS = {
+    ".pyc", ".pyo", ".so", ".dll", ".exe", ".png", ".jpg", ".jpeg", ".gif",
+    ".ico", ".svg", ".woff", ".woff2", ".ttf", ".eot", ".map", ".lock",
+    ".zip", ".tar", ".gz", ".rar", ".7z", ".pdf", ".doc", ".docx",
+}
+
+SKIP_DIRS = {
+    ".git", "node_modules", "__pycache__", ".venv", "venv", "env", ".env",
+    "dist", "build", ".next", ".nuxt", "coverage", ".cache",
+}
+
+# Domain-specific half-life (temporal relativity)
 DOMAIN_TEMPORAL_DECAY_PROFILES = {
     "rbi.org.in": (365, "regulatory"),
     "mca.gov.in": (365, "regulatory"),
@@ -31,14 +46,100 @@ DOMAIN_TEMPORAL_DECAY_PROFILES = {
     "reuters.com": (1, "news"),
 }
 
+
+# ─── Shared Utilities ────────────────────────────────────────────────────────
+
+def now():
+    """UTC ISO timestamp."""
+    return datetime.now(timezone.utc).isoformat() + "Z"
+
+
+def walk_code(path, skip_dirs=None, skip_exts=None):
+    """Walk codebase, yielding (root, filename, filepath, rel_path)."""
+    sd = skip_dirs or SKIP_DIRS
+    se = skip_exts or SKIP_EXTENSIONS
+    for root, dirs, files in os.walk(path):
+        dirs[:] = [d for d in dirs if d not in sd]
+        for filename in files:
+            ext = os.path.splitext(filename)[1].lower()
+            if ext in se:
+                continue
+            filepath = os.path.join(root, filename)
+            rel_path = os.path.relpath(filepath, path)
+            yield root, filename, filepath, rel_path
+
+
+def categorize_files(files):
+    """Categorize file paths by type."""
+    cats = {"source": [], "test": [], "config": [], "docs": [], "style": [], "build": [], "ci": [], "other": []}
+    patterns = {
+        "test": [r"test_", r"_test\.", r"spec\.", r"tests?/", r"__tests__/"],
+        "config": [r"\.json$", r"\.yaml$", r"\.yml$", r"\.toml$", r"\.ini$", r"\.cfg$"],
+        "docs": [r"\.md$", r"\.rst$", r"README", r"CHANGELOG", r"LICENSE"],
+        "style": [r"\.css$", r"\.scss$", r"\.less$", r"\.sass$"],
+        "build": [r"Makefile", r"Dockerfile", r"docker-compose", r"\.gradle", r"pom\.xml", r"setup\.py", r"pyproject\.toml"],
+        "ci": [r"\.github/", r"\.gitlab-ci", r"\.travis", r"Jenkinsfile", r"\.circleci"],
+    }
+    for f in files:
+        matched = False
+        for cat, pats in patterns.items():
+            if any(re.search(p, f) for p in pats):
+                cats[cat].append(f)
+                matched = True
+                break
+        if not matched:
+            if re.search(r"\.(py|js|ts|jsx|tsx|go|rs|java|c|cpp|h|hpp|rb|php|swift|kt|scala)$", f):
+                cats["source"].append(f)
+            else:
+                cats["other"].append(f)
+    return {k: v for k, v in cats.items() if v}
+
+
+def detect_project(path):
+    """Detect project type, framework, package manager."""
+    result = {
+        "language": "unknown", "framework": "unknown", "package_manager": "unknown",
+        "has_tests": False, "has_ci": False, "has_docker": False, "has_docs": False,
+    }
+    files = set()
+    for root, dirs, fs in os.walk(path):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for f in fs:
+            files.add(f)
+        if len(files) > 300:
+            break
+
+    if any(f.endswith(".py") for f in files): result["language"] = "python"
+    elif any(f.endswith((".ts", ".tsx")) for f in files): result["language"] = "typescript"
+    elif any(f.endswith((".js", ".jsx")) for f in files): result["language"] = "javascript"
+    elif any(f.endswith(".go") for f in files): result["language"] = "go"
+    elif any(f.endswith(".rs") for f in files): result["language"] = "rust"
+
+    if "package.json" in files:
+        result["package_manager"] = "npm"
+    elif "pyproject.toml" in files or "setup.py" in files:
+        result["package_manager"] = "pip"
+    elif "Cargo.toml" in files:
+        result["package_manager"] = "cargo"
+    elif "go.mod" in files:
+        result["package_manager"] = "go"
+
+    result["has_tests"] = any("test" in f.lower() or "spec" in f.lower() for f in files)
+    result["has_ci"] = any(".github" in f or ".gitlab-ci" in f or "Jenkinsfile" in f for f in files)
+    result["has_docker"] = "Dockerfile" in files
+    result["has_docs"] = "docs" in files or "doc" in files
+
+    return result
+
+
 def init_shared_db():
     """Ensure the shared schema exists in SQLite."""
     try:
-        db_dir = os.path.dirname(_OWL_DB_PATH)
+        db_dir = os.path.dirname(OWL_DB_PATH)
         if db_dir and not os.path.exists(db_dir):
             os.makedirs(db_dir, exist_ok=True)
             
-        with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+        with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.execute("PRAGMA foreign_keys = ON")
             

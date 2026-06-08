@@ -27,10 +27,7 @@ import re
 import sqlite3
 import subprocess
 import sys
-import time
 import traceback
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -42,6 +39,7 @@ except ImportError:
     print("ERROR: mcp package not found.", file=sys.stderr)
     sys.exit(1)
 
+import owl_shared_intelligence as shared
 # ─── Secret Detection Patterns ────────────────────────────────────────────────
 
 SECRET_PATTERNS = {
@@ -67,12 +65,6 @@ SECRET_PATTERNS = {
 }
 
 # Files to skip during secret scanning
-SKIP_EXTENSIONS = {".pyc", ".pyo", ".so", ".dll", ".exe", ".png", ".jpg", ".jpeg", ".gif",
-                   ".ico", ".svg", ".woff", ".woff2", ".ttf", ".eot", ".map", ".lock",
-                   ".zip", ".tar", ".gz", ".rar", ".7z", ".pdf", ".doc", ".docx"}
-SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "env", ".env",
-             "dist", "build", ".next", ".nuxt", "coverage", ".cache"}
-
 # ─── OWASP Patterns ───────────────────────────────────────────────────────────
 
 OWASP_PATTERNS = {
@@ -281,7 +273,7 @@ async def handle_secret_scan(args: dict) -> dict:
         "severity_counts": severity_counts,
         "files_scanned": files_scanned,
         "files_skipped": files_skipped,
-        "scan_time": _now()
+        "scan_time": shared.now()
     }
 
 
@@ -483,7 +475,7 @@ async def handle_owasp_scan(args: dict) -> dict:
         "severity_counts": severity_counts,
         "owasp_category_counts": owasp_counts,
         "files_scanned": files_scanned,
-        "scan_time": _now()
+        "scan_time": shared.now()
     }
 
 
@@ -600,7 +592,7 @@ async def handle_code_audit(args: dict) -> dict:
         "total_findings": len(unique),
         "severity_counts": severity_counts,
         "files_scanned": files_scanned,
-        "scan_time": _now()
+        "scan_time": shared.now()
     }
 
 
@@ -963,7 +955,7 @@ async def handle_auth_audit(args: dict) -> dict:
         "total_findings": len(unique),
         "severity_counts": severity_counts,
         "files_scanned": files_scanned,
-        "scan_time": _now()
+        "scan_time": shared.now()
     }
 
 
@@ -1123,7 +1115,7 @@ async def handle_security_report(args: dict) -> dict:
             "cors": {"risk": cors_result.get("risk", "N/A")} if cors_result else None,
         },
         "top_priorities": _get_top_priorities(secret_result, owasp_result, code_result, auth_result),
-        "scan_time": _now()
+        "scan_time": shared.now()
     }
 
 

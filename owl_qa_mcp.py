@@ -33,7 +33,7 @@ import httpx
 import owl_qa_visual
 import owl_qa_android
 import owl_shared_intelligence
-from owl_shared_intelligence import _OWL_DB_PATH
+from owl_shared_intelligence import OWL_DB_PATH
 
 
 # -- Initialize FastMCP Server ────────────────────────────────────────────────
@@ -142,7 +142,7 @@ def init_qa_schema():
         """
     ]
     try:
-        with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+        with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
             for query in queries:
                 conn.execute(query)
             
@@ -597,7 +597,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> List[TextContent]:
             # Save baseline record if approved
             if shot_path:
                 try:
-                    with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                    with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
                         conn.execute("""
                             INSERT OR REPLACE INTO qa_visual_baselines
                               (id, target_url, flow_name, step_name, screenshot_path, dom_hash, harmony_score, element_count, approved, project, created_at)
@@ -692,7 +692,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> List[TextContent]:
 
                     # Store API record
                     try:
-                        with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                        with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
                             conn.execute("""
                                 INSERT OR REPLACE INTO qa_api_contracts
                                   (id, base_url, endpoint, method, expected_status_codes_json, response_schema_json, avg_response_ms, threshold_ms, project, created_at, updated_at)
@@ -768,7 +768,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> List[TextContent]:
 
                 # Store test step record
                 try:
-                    with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                    with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
                         conn.execute("""
                             INSERT INTO qa_test_steps
                               (id, run_id, step_index, action_type, target_selector, input_value, expected_state, actual_state, passed, screenshot_before, screenshot_after, console_errors_json, duration_ms, created_at)
@@ -861,7 +861,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> List[TextContent]:
 
             # Record test run to SQLite
             try:
-                with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
                     conn.execute("""
                         INSERT INTO qa_test_runs
                           (id, test_type, target_app, status, bug_count, duration_ms, project, created_at, completed_at)
@@ -961,7 +961,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> List[TextContent]:
             
             # Save flow genome tracker for Darwin living test suite evolution
             try:
-                with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
                     # Increment run count
                     conn.execute("""
                         INSERT OR REPLACE INTO qa_test_genome
@@ -982,7 +982,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> List[TextContent]:
             # Load baseline screenshot
             baseline_path = None
             try:
-                with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
                     row = conn.execute("""
                         SELECT screenshot_path FROM qa_visual_baselines
                         WHERE target_url = ? AND flow_name = ? AND approved = 1
@@ -1176,7 +1176,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> List[TextContent]:
             interval = arguments.get("check_interval_minutes", 60)
 
             try:
-                with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
                     conn.execute("""
                         INSERT OR REPLACE INTO qa_sentinel_monitors
                           (id, target_url, flow_name, flow_steps_json, check_interval_minutes, last_status, consecutive_failures, uptime_pct, project, active, created_at)
@@ -1195,7 +1195,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> List[TextContent]:
             # Load bug details
             bug_details = {}
             try:
-                with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
                     row = conn.execute("""
                         SELECT title, description, target_url, target_app FROM qa_bugs
                         WHERE id = ?

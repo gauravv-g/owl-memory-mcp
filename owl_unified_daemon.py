@@ -21,7 +21,7 @@ WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
 if WORKSPACE_DIR not in sys.path:
     sys.path.insert(0, WORKSPACE_DIR)
 
-from owl_shared_intelligence import _OWL_DB_PATH
+from owl_shared_intelligence import OWL_DB_PATH
 
 # State variables
 LAST_SAVED_FILE = None
@@ -30,7 +30,7 @@ IDLE_STATE = True
 LAST_IDLE_TRIGGER = 0.0
 
 def get_db_connection():
-    conn = sqlite3.connect(_OWL_DB_PATH, timeout=10)
+    conn = sqlite3.connect(OWL_DB_PATH, timeout=10)
     conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
@@ -375,7 +375,7 @@ def monitor_loop():
 
 if __name__ == "__main__":
     # Ensure database pid write
-    pid_file = os.path.join(os.path.dirname(_OWL_DB_PATH), "daemon.pid")
+    pid_file = os.path.join(os.path.dirname(OWL_DB_PATH), "daemon.pid")
     os.makedirs(os.path.dirname(pid_file), exist_ok=True)
     
     # Check if already running

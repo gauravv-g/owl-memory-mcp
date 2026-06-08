@@ -56,9 +56,9 @@ except ImportError:
 import sqlite3
 import hashlib
 import owl_shared_intelligence
-from owl_shared_intelligence import _owl_check_memory_first, _update_domain_trust, _get_domain_trust
+from owl_shared_intelligence import OWL_DB_PATH, _owl_check_memory_first, _update_domain_trust, _get_domain_trust
 
-_OWL_DB_PATH = os.environ.get(
+OWL_DB_PATH = os.environ.get(
     "OWL_MEMORY_DB",
     os.path.join(os.path.expanduser("~"), ".owl-memory", "memory-v5.db")
 )
@@ -72,13 +72,13 @@ def _owl_store_research_with_code_link(topic: str, synthesis: str, project: str 
     Pillar 16: Also propagates source domains to the source trust ledger.
     """
     try:
-        if not os.path.exists(_OWL_DB_PATH):
+        if not os.path.exists(OWL_DB_PATH):
             return None
         content = f"[RESEARCH] {topic}\n\n{synthesis[:1500]}"
         mem_id = "res_" + hashlib.sha256(content.encode()).hexdigest()[:20]
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         sources_str = json.dumps(sources or [])
-        with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+        with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
             conn.execute("PRAGMA wal_autocheckpoint = 100")
             try:
                 conn.execute("ALTER TABLE episodic_memories ADD COLUMN provenance_chain TEXT")
@@ -144,7 +144,7 @@ def _get_warped_query_context(project="default"):
     last_file = None
     last_error = None
     try:
-        with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+        with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
             # Check last touched file
             row_file = conn.execute("""
                 SELECT file_touched FROM session_behavior_log 
@@ -199,7 +199,7 @@ def _warp_query_with_context(query: str, project: str = "default") -> tuple[str,
 def _get_evolved_queries(topic: str, category: str = "technical", num: int = 4) -> list[str]:
     """Pillar 14: Evolutionary Query Generation"""
     try:
-        with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+        with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
             conn.execute("PRAGMA wal_autocheckpoint = 100")
             rows = conn.execute("""
                 SELECT query_template FROM research_query_fitness
@@ -229,7 +229,7 @@ def _reward_query_templates(queries: list[str], topic: str, category: str = "tec
     """Pillar 14: Reward templates that find good results"""
     try:
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+        with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
             conn.execute("PRAGMA wal_autocheckpoint = 100")
             for q in queries:
                 template = q.replace(topic, "{topic}")
@@ -1359,7 +1359,7 @@ async def _tool_research_on_file(args: dict) -> list[TextContent]:
                         # Cross-reference against semantic memories (hallucination firewall check)
                         contradiction_found = False
                         try:
-                            with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                            with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
                                 cursor = conn.execute("""
                                     SELECT content FROM semantic_memories 
                                     WHERE content LIKE ? AND project = ?
@@ -1374,7 +1374,7 @@ async def _tool_research_on_file(args: dict) -> list[TextContent]:
                         # Store in code_bugs table
                         try:
                             bug_id = f"cve_{cve.lower()}_{hashlib.sha256(file_path.encode()).hexdigest()[:8]}"
-                            with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+                            with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
                                 conn.execute("""
                                     INSERT OR IGNORE INTO code_bugs 
                                       (id, project, file_path, bug_type, description, severity, status, is_active, created_at, updated_at)
@@ -1487,14 +1487,14 @@ async def _tool_research_diff(args: dict) -> list[TextContent]:
         return [TextContent(type="text", text=json.dumps({"error": "topic parameter is required"}))]
         
     try:
-        from owl_shared_intelligence import _OWL_DB_PATH
+        from owl_shared_intelligence import OWL_DB_PATH
         import sqlite3
         import datetime
         import re
         
         # 1. Fetch research memories for topic
         memories = []
-        with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+        with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT id, content, created_at 
@@ -1580,7 +1580,7 @@ async def _tool_research_diff(args: dict) -> list[TextContent]:
         re_research_triggered = False
         if drift_score > 0.3:
             re_research_triggered = True
-            with sqlite3.connect(_OWL_DB_PATH, timeout=5) as conn:
+            with sqlite3.connect(OWL_DB_PATH, timeout=5) as conn:
                 conn.execute("UPDATE episodic_memories SET stale_flag = 1 WHERE id = ?", (older_mem["id"],))
                 payload = json.dumps({
                     "topic": topic,

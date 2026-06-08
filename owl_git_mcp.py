@@ -27,10 +27,7 @@ import os
 import re
 import subprocess
 import sys
-import time
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from pathlib import Path
 
 try:
     from mcp.server import Server
@@ -40,9 +37,7 @@ except ImportError:
     print("ERROR: mcp package not found.", file=sys.stderr)
     sys.exit(1)
 
-
-def _now():
-    return datetime.now(timezone.utc).isoformat() + "Z"
+import owl_shared_intelligence as shared
 
 
 def _run_git(repo_path: str, *args, timeout: int = 30) -> dict:
@@ -62,35 +57,6 @@ def _run_git(repo_path: str, *args, timeout: int = 30) -> dict:
         return {"success": False, "stdout": "", "stderr": "timeout", "exit_code": -1}
     except FileNotFoundError:
         return {"success": False, "stdout": "", "stderr": "git not found", "exit_code": -1}
-
-
-def _categorize_files(files: list) -> dict:
-    """Categorize changed files by type and purpose."""
-    categories = {
-        "source": [], "test": [], "config": [], "docs": [],
-        "style": [], "build": [], "ci": [], "other": []
-    }
-    patterns = {
-        "test": [r"test_", r"_test\.", r"spec\.", r"tests?/", r"__tests__/"],
-        "config": [r"\.json$", r"\.yaml$", r"\.yml$", r"\.toml$", r"\.ini$", r"\.cfg$", r"\.conf$"],
-        "docs": [r"\.md$", r"\.rst$", r"\.txt$", r"README", r"CHANGELOG", r"LICENSE"],
-        "style": [r"\.css$", r"\.scss$", r"\.less$", r"\.sass$"],
-        "build": [r"Makefile", r"Dockerfile", r"docker-compose", r"\.gradle", r"pom\.xml", r"setup\.py", r"pyproject\.toml"],
-        "ci": [r"\.github/", r"\.gitlab-ci", r"\.travis", r"Jenkinsfile", r"\.circleci"],
-    }
-    for f in files:
-        categorized = False
-        for cat, pats in patterns.items():
-            if any(re.search(p, f) for p in pats):
-                categories[cat].append(f)
-                categorized = True
-                break
-        if not categorized:
-            if re.search(r"\.(py|js|ts|jsx|tsx|go|rs|java|c|cpp|h|hpp|rb|php|swift|kt|scala)$", f):
-                categories["source"].append(f)
-            else:
-                categories["other"].append(f)
-    return {k: v for k, v in categories.items() if v}
 
 
 # ─── Tool Handlers ────────────────────────────────────────────────────────────
@@ -126,7 +92,7 @@ async def handle_status(args: dict) -> dict:
             untracked.append(filename)
 
     all_changed = [f["file"] for f in staged + unstaged] + untracked
-    categories = _categorize_files(all_changed)
+    categories = shared.categorize_files(all_changed)
 
     # Ahead/behind
     ab = _run_git(repo, "rev-list", "--left-right", "--count", "@{upstream}...HEAD")
@@ -172,7 +138,7 @@ async def handle_smart_commit(args: dict) -> dict:
 
     # Analyze changes
     files_changed = re.findall(r"^\+\+\+ b/(.+)$", diff_text, re.MULTILINE)
-    categories = _categorize_files(files_changed)
+    categories = shared.categorize_files(files_changed)
 
     # Determine commit type
     commit_type = "chore"
@@ -613,7 +579,7 @@ async def handle_pr_generate(args: dict) -> dict:
     commit_list = [c for c in commits["stdout"].split("\n") if c] if commits["success"] else []
 
     # Categorize
-    categories = _categorize_files(changed_files)
+    categories = shared.categorize_files(changed_files)
 
     # Generate title from commits or branch name
     title = ""

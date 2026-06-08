@@ -24,9 +24,6 @@ import os
 import re
 import subprocess
 import sys
-import time
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:
@@ -37,10 +34,7 @@ except ImportError:
     print("ERROR: mcp package not found.", file=sys.stderr)
     sys.exit(1)
 
-
-def _now():
-    return datetime.now(timezone.utc).isoformat() + "Z"
-
+import owl_shared_intelligence as shared
 
 def _run_git(repo_path, *args, timeout=15):
     try:
@@ -53,12 +47,7 @@ def _run_git(repo_path, *args, timeout=15):
         return {"success": False, "stdout": "", "stderr": "git not available"}
 
 
-def _detect_project_type(path):
-    """Detect the project type and framework."""
-    result = {
-        "language": "unknown", "framework": "unknown", "package_manager": "unknown",
-        "has_tests": False, "has_ci": False, "has_docker": False, "has_docs": False
-    }
+
 
     files = set()
     for root, dirs, fs in os.walk(path):
@@ -208,7 +197,7 @@ async def handle_readme_generate(args: dict) -> dict:
     if not project_name:
         project_name = os.path.basename(os.path.abspath(path))
 
-    project = _detect_project_type(path)
+    project = shared.detect_project(path)
     analysis = _analyze_codebase(path)
 
     # Get git info
@@ -444,7 +433,7 @@ async def handle_architecture_diagram(args: dict) -> dict:
     if not os.path.isdir(path):
         return {"error": f"not a directory: {path}"}
 
-    project = _detect_project_type(path)
+    project = shared.detect_project(path)
     analysis = _analyze_codebase(path)
 
     diagrams = []
@@ -551,7 +540,7 @@ async def handle_contributing_generate(args: dict) -> dict:
     """Generate CONTRIBUTING.md."""
     path = args.get("path", ".")
     project_name = args.get("project_name", os.path.basename(os.path.abspath(path)))
-    project = _detect_project_type(path)
+    project = shared.detect_project(path)
 
     sections = [
         f"# Contributing to {project_name}\n",
@@ -836,7 +825,7 @@ async def handle_onboarding(args: dict) -> dict:
     if not os.path.isdir(path):
         return {"error": f"not a directory: {path}"}
 
-    project = _detect_project_type(path)
+    project = shared.detect_project(path)
     analysis = _analyze_codebase(path)
 
     sections = [

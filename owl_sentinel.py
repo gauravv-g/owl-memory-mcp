@@ -20,11 +20,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # -- Constants and Paths ──────────────────────────────────────────────────────
-_OWL_DB_PATH = os.environ.get(
+OWL_DB_PATH = os.environ.get(
     "OWL_MEMORY_DB",
     os.path.join(os.path.expanduser("~"), ".owl-memory", "memory-v5.db")
 )
-PID_FILE = os.path.join(os.path.dirname(_OWL_DB_PATH), "sentinel.pid")
+PID_FILE = os.path.join(os.path.dirname(OWL_DB_PATH), "sentinel.pid")
 
 # -- Windows Toast Notification Helper ────────────────────────────────────────
 def notify_windows(title: str, message: str):
@@ -135,11 +135,11 @@ async def execute_android_flow(package: str, steps: list) -> tuple[bool, str]:
 # -- Core Monitor Logic ────────────────────────────────────────────────────────
 async def run_monitor_cycle():
     """Scan and execute active monitors whose interval matches current time."""
-    if not os.path.exists(_OWL_DB_PATH):
+    if not os.path.exists(OWL_DB_PATH):
         return
 
     try:
-        conn = sqlite3.connect(_OWL_DB_PATH, timeout=5)
+        conn = sqlite3.connect(OWL_DB_PATH, timeout=5)
         conn.row_factory = sqlite3.Row
         monitors = conn.execute("SELECT * FROM qa_sentinel_monitors WHERE active = 1").fetchall()
     except Exception as db_err:
@@ -252,7 +252,7 @@ async def check_daily_summary():
     now = datetime.now()
     if now.hour == 9 and now.minute == 0:
         try:
-            conn = sqlite3.connect(_OWL_DB_PATH, timeout=5)
+            conn = sqlite3.connect(OWL_DB_PATH, timeout=5)
             conn.row_factory = sqlite3.Row
             rows = conn.execute("SELECT flow_name, uptime_pct FROM qa_sentinel_monitors WHERE active = 1").fetchall()
             if rows:
