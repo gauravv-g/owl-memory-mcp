@@ -481,7 +481,7 @@ async def handle_execute(args):
                     t["status"] = "retrying"
                     t["outputs"] = {**output, "attempt": attempt, "will_retry": True}
                     # Retry immediately (simple approach — could defer to next wave)
-                    retry_success, retry_output = await _execute_single_task(t, wave_results)
+                    retry_success, retry_output = await _execute_single_task(t, wave_results, project_path)
                     if retry_success:
                         t["status"] = "completed"
                         t["outputs"] = retry_output
@@ -584,7 +584,177 @@ async def handle_dashboard(args):
     }
 
 
-# ─── Unchanged handlers from Phase 4 ────────────────────────────────────────
+# ─── Phase 7: Agent Feedback Loop ────────────────────────────────────────────
+
+async def handle_update_task(args):
+    """Agent calls this to report results for an agent-delegated task.
+
+    Updates task status, outputs, and error. If marking as completed,
+    advances the graph's completed_tasks counter. If marking as failed,
+    increments failed_tasks.
+    """
+    task_id = args.get("task_id", "")
+    graph_id = args.get("graph_id", "")
+    status = args.get("status", "completed")  # completed, failed, in_progress
+    outputs = args.get("outputs", {})
+    error = args.get("error", "")
+
+    if not task_id:
+        return {"error": "task_id required"}
+    if not graph_id:
+        return {"error": "graph_id required"}
+
+    now = _now()
+    with get_db() as conn:
+        row = conn.execute("SELECT status FROM tasks WHERE task_id=? AND graph_id=?", (task_id, graph_id)).fetchone()
+        if not row:
+            return {"error": f"Task {task_id} not found in graph {graph_id}"}
+
+        old_status = row[0]
+        conn.execute(
+            "UPDATE tasks SET status=?,outputs=?,error=?,updated_at=? WHERE task_id=?",
+            (status, json.dumps(outputs), error, now, task_id)
+        )
+
+        # Adjust graph counters
+        was_done = old_status in ("completed", "completed_after_retry")
+        is_done = status in ("completed", "completed_after_retry")
+        was_failed = old_status == "failed"
+        is_failed = status == "failed"
+
+        if not was_done and is_done:
+            conn.execute("UPDATE task_graphs SET completed_tasks=completed_tasks+1,updated_at=? WHERE graph_id=?", (now, graph_id))
+        elif was_done and not is_done:
+            conn.execute("UPDATE task_graphs SET completed_tasks=completed_tasks-1,updated_at=? WHERE graph_id=?", (now, graph_id))
+        if not was_failed and is_failed:
+            conn.execute("UPDATE task_graphs SET failed_tasks=failed_tasks+1,updated_at=? WHERE graph_id=?", (now, graph_id))
+        elif was_failed and not is_failed:
+            conn.execute("UPDATE task_graphs SET failed_tasks=failed_tasks-1,updated_at=? WHERE graph_id=?", (now, graph_id))
+
+    return {"task_id": task_id, "graph_id": graph_id, "status": status, "updated": True}
+
+
+async def handle_report(args):
+    """Summarize graph progress: which tasks are done, which need agent attention.
+
+    Returns a structured report with pending agent tasks grouped by wave,
+    their delegation context, and the current graph state.
+    """
+    graph_id = args.get("graph_id", "")
+    if not graph_id:
+        return {"error": "graph_id required"}
+
+    with get_db() as conn:
+        gr = conn.execute("SELECT * FROM task_graphs WHERE graph_id=?", (graph_id,)).fetchone()
+        if not gr:
+            return {"error": f"Graph not found: {graph_id}"}
+        rows = conn.execute("SELECT task_id,task_type,title,description,status,outputs,dependencies FROM tasks WHERE graph_id=?", (graph_id,)).fetchall()
+
+    tasks = []
+    for r in rows:
+        tasks.append({
+            "id": r[0], "type": r[1], "title": r[2], "description": r[3],
+            "status": r[4], "outputs": json.loads(r[5]) if r[5] else {},
+            "dependencies": json.loads(r[6]),
+        })
+
+    done = [t for t in tasks if t["status"] in ("completed", "completed_after_retry")]
+    failed = [t for t in tasks if t["status"] == "failed"]
+    pending = [t for t in tasks if t["status"] in ("pending", "ready_for_executing", "agent_delegated")]
+    in_progress = [t for t in tasks if t["status"] == "in_progress"]
+
+    # Identify which pending tasks are unblocked (all deps completed)
+    done_ids = {t["id"] for t in done}
+    unblocked = [t for t in pending if all(d in done_ids for d in t["dependencies"])]
+    blocked = [t for t in pending if not all(d in done_ids for d in t["dependencies"])]
+
+    return {
+        "graph_id": graph_id,
+        "goal": gr[1],
+        "status": gr[2],
+        "total_tasks": gr[6],
+        "completed": gr[7],
+        "failed": gr[8],
+        "progress": f"{gr[7]}/{gr[6]}",
+        "done": [{"id": t["id"], "title": t["title"], "type": t["type"]} for t in done],
+        "failed_tasks": [{"id": t["id"], "title": t["title"], "error": t["outputs"].get("error", "")} for t in failed],
+        "needs_agent_attention": [
+            {
+                "id": t["id"],
+                "title": t["title"],
+                "type": t["type"],
+                "description": t["description"],
+                "context_from_upstream": _collect_context(t, {d: tasks[deque_id]["outputs"] for deque_id in t["dependencies"] if deque_id in {x["id"]: x for x in tasks}}),
+                "delegation_hint": _get_delegation_hint(t["type"]),
+            }
+            for t in unblocked
+        ],
+        "blocked": [{"id": t["id"], "title": t["title"], "waiting_for": [d for d in t["dependencies"] if d not in done_ids]} for t in blocked],
+        "in_progress": [{"id": t["id"], "title": t["title"]} for t in in_progress],
+    }
+
+
+async def handle_run(args):
+    """Full lifecycle: plan → execute → return report for agent feedback.
+
+    One-shot convenience tool that:
+    1. Plans the goal (like nexus_plan)
+    2. Executes auto-executable tasks (like nexus_execute with dry_run=False)
+    3. Returns a report showing what the agent needs to do (like nexus_report)
+
+    The agent then uses nexus_update_task to report back completed work,
+    and calls nexus_run again with graph_id to continue.
+    """
+    graph_id = args.get("graph_id", "")
+    goal = args.get("goal", "")
+    project_path = args.get("project_path", ".")
+    template_id = args.get("template_id", "")
+    parallel = args.get("parallel", True)
+    max_parallel = args.get("max_parallel", 3)
+
+    # If graph_id provided, just execute existing graph
+    if graph_id:
+        exec_result = await handle_execute({
+            "graph_id": graph_id,
+            "dry_run": False,
+            "parallel": parallel,
+            "max_parallel": max_parallel,
+            "project_path": project_path,
+        })
+        report = await handle_report({"graph_id": graph_id})
+        return {
+            "graph_id": graph_id,
+            "execution": exec_result,
+            "report": report,
+        }
+
+    # New goal: plan then execute
+    if not goal:
+        return {"error": "goal required when graph_id not provided"}
+
+    plan_result = await handle_plan({
+        "goal": goal,
+        "template_id": template_id,
+    })
+
+    graph_id = plan_result["graph_id"]
+
+    exec_result = await handle_execute({
+        "graph_id": graph_id,
+        "dry_run": False,
+        "parallel": parallel,
+        "max_parallel": max_parallel,
+        "project_path": project_path,
+    })
+
+    report = await handle_report({"graph_id": graph_id})
+
+    return {
+        "graph_id": graph_id,
+        "plan": plan_result,
+        "execution": exec_result,
+        "report": report,
+    }
 
 async def handle_plan(args):
     goal = args.get("goal", "")
@@ -821,6 +991,9 @@ TOOL_CATEGORIES = {
     "nexus_template": "advanced",
     "nexus_save_template": "advanced",
     "nexus_dashboard": "utility",
+    "nexus_run": "core",
+    "nexus_update_task": "core",
+    "nexus_report": "utility",
 }
 TIER = "Tier-1-core"
 
@@ -853,6 +1026,15 @@ async def list_tools():
         Tool(name="nexus_dashboard",
              description="Engineering dashboard with live stats, active graphs, recent completions, and template performance.",
              inputSchema={"type":"object","properties":{}}),
+        Tool(name="nexus_run",
+             description="Full lifecycle: plan → execute → agent report in one call. Plans a graph, runs auto-executable tasks, returns a report of agent-delegated tasks needing attention. Pass graph_id to continue an existing graph. Agent uses nexus_update_task to report back completed work.",
+             inputSchema={"type":"object","properties":{"goal":{"type":"string"},"graph_id":{"type":"string"},"project_path":{"type":"string","default":"."},"template_id":{"type":"string"},"parallel":{"type":"boolean","default":True},"max_parallel":{"type":"integer","default":3}}}),
+        Tool(name="nexus_update_task",
+             description="Report results for an agent-delegated task. Call this after completing agent work to update task status, outputs, and advance graph progress. Status: completed, failed, in_progress.",
+             inputSchema={"type":"object","properties":{"task_id":{"type":"string"},"graph_id":{"type":"string"},"status":{"type":"string","default":"completed"},"outputs":{"type":"object","default":{}},"error":{"type":"string","default":""}},"required":["task_id","graph_id"]}),
+        Tool(name="nexus_report",
+             description="Summarize graph progress. Shows completed tasks, failed tasks, tasks needing agent attention (with delegation context and upstream results), and blocked tasks. Use this to see what to work on next.",
+             inputSchema={"type":"object","properties":{"graph_id":{"type":"string"}},"required":["graph_id"]}),
     ]
 
 @server.call_tool()
@@ -867,6 +1049,9 @@ async def call_tool(name, arguments):
             "nexus_template": handle_template,
             "nexus_save_template": handle_save_template,
             "nexus_dashboard": handle_dashboard,
+            "nexus_run": handle_run,
+            "nexus_update_task": handle_update_task,
+            "nexus_report": handle_report,
         }
         r = await h[name](arguments)
         return [TextContent(type="text", text=json.dumps(r, ensure_ascii=False))]
