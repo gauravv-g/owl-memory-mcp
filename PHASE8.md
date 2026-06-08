@@ -52,8 +52,13 @@ This prevents `python -m py_compile` from working. The MCP servers run fine thro
 Hermes's MCP subprocess which uses a different Python environment.
 Fix: `uv venv .venv --python 3.11 && source .venv/Scripts/activate`
 
+### Venv Fix
+System Python 3.11 had corrupted SRE module (`AssertionError: SRE module mismatch`).
+Repaired by: `uv venv .venv --python 3.11.15` then `uv pip install <deps>`.
+All 13 servers now compile and pass `py_comiple` with the new venv.
+
 ### Notes
 - `owl_shared_intelligence.py` (725 lines) — shared DB/schema library, imported by research and web MCPs. Not a standalone server.
 - `owl_unified_daemon.py` (402 lines) — standalone file-watcher daemon with `if __name__ == "__main__"`. Not an MCP server.
-- `scratch/` directory still contains old helper scripts (configure_mcp_direct.py, integrate_mcp_schemas.py). Harmless.
+- `scratch/` directory still contains old helper scripts. Harmless.
 - `archive/` contains old JS server versions (v2-v5). Keep for reference.
