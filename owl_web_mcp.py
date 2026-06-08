@@ -75,7 +75,7 @@ try:
 except ImportError:
     pass
 
-app = Server("owl-web")
+server = Server("owl-web")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -310,7 +310,7 @@ def _page_to_dict(page, url, css_selector=None, xpath=None, attribute=None, limi
 # TOOL DEFINITIONS
 # ─────────────────────────────────────────────────────────────────────────────
 
-@app.list_tools()
+@server.list_tools()
 async def list_tools() -> list[Tool]:
     return [
         Tool(
@@ -570,7 +570,7 @@ def _not_installed(lib_name, extra=""):
     return [TextContent(type="text", text=json.dumps(msg))]
 
 
-@app.call_tool()
+@server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     try:
         # ── web_fetch ──────────────────────────────────────────────────────
@@ -918,7 +918,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 "removed_lines": removed[:50],
                 "total_added": len(added),
                 "total_removed": len(removed),
-                "semantic_changes": semantic_changes,
+                "semantic_changes": semantic_events,
                 "freshness": freshness,
                 "current_text_preview": current_text[:500],
                 "raw_diff": "".join(diff[:200])
@@ -1172,7 +1172,7 @@ async def main():
     print(f"[OWL WEB MCP] Scrapling components: {', '.join(status) or 'NONE — run pip install scrapling'}", file=sys.stderr)
 
     async with stdio_server() as (read_stream, write_stream):
-        await app.run(read_stream, write_stream, app.create_initialization_options())
+        await server.run(read_stream, write_stream, server.create_initialization_options())
 
 
 if __name__ == "__main__":

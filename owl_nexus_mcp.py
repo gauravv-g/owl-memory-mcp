@@ -81,10 +81,10 @@ async def handle_plan(args):
     else:
         tasks = _auto_decompose(goal, graph_id)
     with get_db() as conn:
-        conn.execute("INSERT INTO task_graphs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        conn.execute("INSERT INTO task_graphs VALUES (?,?,?,?,?,?,?,?,?,?)",
             (graph_id,goal,"planned",now,now,None,len(tasks),0,0,0))
         for t in tasks:
-            conn.execute("INSERT INTO tasks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            conn.execute("INSERT INTO tasks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (t["id"],graph_id,t.get("type","generic"),t.get("title",""),t.get("description",""),
                  "pending",json.dumps(t.get("dependencies",[])),json.dumps(t.get("inputs",{})),
                  "{}", "", 0, 3, now, now))

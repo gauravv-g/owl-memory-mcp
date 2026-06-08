@@ -1430,14 +1430,14 @@ async def _tool_research_synthesize(args: dict) -> list[TextContent]:
     # Auto-store in OWL memory
     sources = [r.get("url", "") for r in search_results if isinstance(r, dict) and r.get("url")]
     _owl_store_research_with_code_link(topic, synthesis, project=args.get("project", "default"), sources=sources, active_file=args.get("active_file"), provenance_chain=provenance_chain)
-    _log_research(topic, len(search_results) + len(successful_articles), "research_synthesize")
+    _log_research(topic, len(search_results) + len(article_texts), "research_synthesize")
 
     return [TextContent(type="text", text=json.dumps({
         "status": "success",
         "topic": topic,
         "inputs_used": {
             "search_results": len(search_results),
-            "article_texts": len(successful_articles),
+            "article_texts": len(article_texts),
             "raw_notes_chars": len(raw_notes)
         },
         "synthesis": synthesis,

@@ -35,16 +35,9 @@ import owl_qa_android
 import owl_shared_intelligence
 from owl_shared_intelligence import _OWL_DB_PATH
 
-# Hermes v8.0 Pillar Imports
-import owl_qa_genome
-import owl_qa_causal
-import owl_qa_device_cloud
-import owl_qa_healer
-import owl_qa_selftest
-import owl_qa_orchestrator
 
 # -- Initialize FastMCP Server ────────────────────────────────────────────────
-app = Server("owl-qa")
+server = Server("owl-qa")
 
 # -- Anthropic client setup ───────────────────────────────────────────────────
 _anthropic_client = None
@@ -117,198 +110,6 @@ def init_qa_schema():
           discovered_in_run TEXT,
           created_at TEXT NOT NULL, resolved_at TEXT
         );
-        """,
-        # 4. qa_visual_baselines
-        """
-        CREATE TABLE IF NOT EXISTS qa_visual_baselines (
-          id TEXT PRIMARY KEY,
-          target_url TEXT NOT NULL,
-          flow_name TEXT, step_name TEXT NOT NULL,
-          screenshot_path TEXT NOT NULL,
-          dom_hash TEXT,
-          harmony_score REAL DEFAULT 1.0,
-          element_count INTEGER DEFAULT 0,
-          approved INTEGER DEFAULT 1,
-          project TEXT DEFAULT 'default',
-          created_at TEXT NOT NULL
-        );
-        """,
-        # 5. qa_performance_baselines
-        """
-        CREATE TABLE IF NOT EXISTS qa_performance_baselines (
-          id TEXT PRIMARY KEY,
-          target_url TEXT NOT NULL,
-          metric_name TEXT NOT NULL,
-          baseline_value REAL NOT NULL,
-          threshold_warning REAL,
-          threshold_critical REAL,
-          project TEXT DEFAULT 'default',
-          created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-        );
-        """,
-        # 6. qa_knowledge_crystals
-        """
-        CREATE TABLE IF NOT EXISTS qa_knowledge_crystals (
-          id TEXT PRIMARY KEY,
-          target_url TEXT, target_app TEXT,
-          crystal_type TEXT NOT NULL,
-          description TEXT NOT NULL,
-          confidence REAL DEFAULT 0.7,
-          times_confirmed INTEGER DEFAULT 1,
-          project TEXT DEFAULT 'default',
-          created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-        );
-        """,
-        # 7. qa_sentinel_monitors
-        """
-        CREATE TABLE IF NOT EXISTS qa_sentinel_monitors (
-          id TEXT PRIMARY KEY,
-          target_url TEXT, target_app TEXT,
-          flow_name TEXT NOT NULL,
-          flow_steps_json TEXT DEFAULT '[]',
-          check_interval_minutes INTEGER DEFAULT 60,
-          last_checked_at TEXT,
-          last_status TEXT DEFAULT 'pending',
-          consecutive_failures INTEGER DEFAULT 0,
-          uptime_pct REAL DEFAULT 100.0,
-          project TEXT DEFAULT 'default',
-          active INTEGER DEFAULT 1,
-          created_at TEXT NOT NULL
-        );
-        """,
-        # 8. qa_test_genome
-        """
-        CREATE TABLE IF NOT EXISTS qa_test_genome (
-          id TEXT PRIMARY KEY,
-          flow_name TEXT NOT NULL,
-          target_url TEXT, target_app TEXT,
-          fitness_score REAL DEFAULT 0.5,
-          bug_catch_count INTEGER DEFAULT 0,
-          false_positive_count INTEGER DEFAULT 0,
-          run_count INTEGER DEFAULT 0,
-          generation INTEGER DEFAULT 1,
-          parent_flow_name TEXT,
-          mutation_type TEXT,
-          project TEXT DEFAULT 'default',
-          created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-        );
-        """,
-        # 9. qa_bug_resonance
-        """
-        CREATE TABLE IF NOT EXISTS qa_bug_resonance (
-          id TEXT PRIMARY KEY,
-          pattern_name TEXT NOT NULL,
-          trigger_conditions_json TEXT NOT NULL,
-          bug_type TEXT,
-          confidence REAL DEFAULT 0.7,
-          times_confirmed INTEGER DEFAULT 1,
-          source_bug_ids_json TEXT DEFAULT '[]',
-          project TEXT DEFAULT 'default',
-          created_at TEXT NOT NULL
-        );
-        """,
-        # 10. qa_bug_pattern_ledger
-        """
-        CREATE TABLE IF NOT EXISTS qa_bug_pattern_ledger (
-          id TEXT PRIMARY KEY,
-          pattern_type TEXT NOT NULL,
-          co_occurrence_factor TEXT,
-          occurrence_count INTEGER DEFAULT 1,
-          last_occurrence TEXT,
-          projects_affected_json TEXT DEFAULT '[]',
-          insight TEXT,
-          created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-        );
-        """,
-        # 11. qa_behavior_oracle
-        """
-        CREATE TABLE IF NOT EXISTS qa_behavior_oracle (
-          id TEXT PRIMARY KEY,
-          target_url TEXT, target_app TEXT,
-          flow_name TEXT NOT NULL,
-          step_name TEXT NOT NULL,
-          expected_state_json TEXT NOT NULL,
-          confidence REAL DEFAULT 0.8,
-          observations_count INTEGER DEFAULT 1,
-          last_confirmed_at TEXT,
-          project TEXT DEFAULT 'default',
-          created_at TEXT NOT NULL
-        );
-        """,
-        # 12. qa_api_contracts
-        """
-        CREATE TABLE IF NOT EXISTS qa_api_contracts (
-          id TEXT PRIMARY KEY,
-          base_url TEXT NOT NULL,
-          endpoint TEXT NOT NULL,
-          method TEXT NOT NULL,
-          expected_status_codes_json TEXT DEFAULT '[200]',
-          response_schema_json TEXT,
-          avg_response_ms REAL,
-          threshold_ms REAL DEFAULT 500.0,
-          project TEXT DEFAULT 'default',
-          created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-        );
-        """,
-        # 13. qa_predictions
-        """
-        CREATE TABLE IF NOT EXISTS qa_predictions (
-          id TEXT PRIMARY KEY,
-          trigger_type TEXT,
-          trigger_payload TEXT,
-          predicted_bug_description TEXT,
-          confidence REAL,
-          suggested_test_steps_json TEXT,
-          verification_run_id TEXT,
-          outcome TEXT DEFAULT 'pending',
-          created_at TEXT, resolved_at TEXT
-        );
-        """,
-        # 14. qa_heal_log
-        """
-        CREATE TABLE IF NOT EXISTS qa_heal_log (
-          id TEXT PRIMARY KEY,
-          flow_name TEXT,
-          original_selector TEXT,
-          healed_selector TEXT,
-          confidence REAL,
-          applied INTEGER,
-          project TEXT,
-          created_at TEXT
-        );
-        """,
-        # 15. qa_device_registry
-        """
-        CREATE TABLE IF NOT EXISTS qa_device_registry (
-          serial TEXT PRIMARY KEY,
-          model TEXT, manufacturer TEXT,
-          os_version TEXT, api_level INTEGER,
-          screen_width INTEGER, screen_height INTEGER,
-          screen_density INTEGER, ram_mb INTEGER,
-          connection_type TEXT,
-          last_seen TEXT, is_active INTEGER DEFAULT 1
-        );
-        """,
-        # 16. qa_system_health_log
-        """
-        CREATE TABLE IF NOT EXISTS qa_system_health_log (
-          id TEXT PRIMARY KEY,
-          health_score INTEGER,
-          details_json TEXT,
-          created_at TEXT
-        );
-        """,
-        # 17. qa_orchestration_log
-        """
-        CREATE TABLE IF NOT EXISTS qa_orchestration_log (
-          id TEXT PRIMARY KEY,
-          trigger_event TEXT,
-          pillars_activated TEXT,
-          execution_order TEXT,
-          total_duration_ms INTEGER,
-          outcome TEXT,
-          created_at TEXT
-        );
         """
     ]
     try:
@@ -328,11 +129,6 @@ def init_qa_schema():
             for col, col_type in new_bug_cols.items():
                 if col not in bug_cols:
                     conn.execute(f"ALTER TABLE qa_bugs ADD COLUMN {col} {col_type}")
-                    
-            cursor = conn.execute("PRAGMA table_info(qa_test_genome)")
-            genome_cols = [row[1] for row in cursor.fetchall()]
-            if "flow_steps_json" not in genome_cols:
-                conn.execute("ALTER TABLE qa_test_genome ADD COLUMN flow_steps_json TEXT")
                 
             conn.commit()
         print("[OWL QA] Database schema initialized.", file=sys.stderr)
@@ -353,7 +149,7 @@ def generate_uuid(prefix: str = "run") -> str:
 
 
 # -- Tool definitions ─────────────────────────────────────────────────────────
-@app.list_tools()
+@server.list_tools()
 async def list_tools() -> List[Tool]:
     return [
         Tool(
@@ -720,114 +516,11 @@ async def list_tools() -> List[Tool]:
                 },
                 "required": ["your_url", "competitor_url"]
             }
-        ),
-        # ── Hermes v8.0 Pillar Tools ─────────────────────────────────────────
-        Tool(
-            name="qa_genome_evolve",
-            description=(
-                "Pillar 1 - Test Genome: Run an evolutionary generation cycle on all "
-                "stored test chromosomes for a project. Mutates high-fitness flows, "
-                "breeds crossover offspring, and prunes weak/flaky tests automatically."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "project": {"type": "string", "default": "default"}
-                }
-            }
-        ),
-        Tool(
-            name="qa_genome_register_flow",
-            description=(
-                "Pillar 1 - Test Genome: Register a new test flow as a chromosome "
-                "in the evolutionary pool so it can be mutated and scored over time."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "flow_name": {"type": "string", "description": "Unique flow identifier"},
-                    "target_url": {"type": "string", "description": "Target web URL (optional)"},
-                    "target_app": {"type": "string", "description": "Target Android package (optional)"},
-                    "steps": {"type": "array", "items": {"type": "object"}, "description": "Flow action steps"},
-                    "project": {"type": "string", "default": "default"}
-                },
-                "required": ["flow_name", "steps"]
-            }
-        ),
-        Tool(
-            name="qa_causal_chain",
-            description=(
-                "Pillar 2 - Causal AI: Given a bug ID, perform deep root-cause analysis. "
-                "Traces the chain from observed symptoms (console errors, network failures, "
-                "selector timeouts) to the true source using Claude reasoning + Feynman explanations."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "bug_id": {"type": "string", "description": "Database ID of the bug to analyze"}
-                },
-                "required": ["bug_id"]
-            }
-        ),
-        Tool(
-            name="qa_device_cloud_scan",
-            description=(
-                "Pillar 4 - Device Cloud: Scan the network for Android devices via ADB, "
-                "sync the device registry, and return available device metadata."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "auto_connect_wifi": {"type": "boolean", "description": "Attempt ADB WiFi auto-connect for all known devices", "default": False}
-                }
-            }
-        ),
-        Tool(
-            name="qa_device_parallel_test",
-            description=(
-                "Pillar 4 - Device Cloud: Run an Android test flow in parallel across "
-                "multiple connected devices simultaneously and return per-device results."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "package": {"type": "string", "description": "Android app package name"},
-                    "actions": {"type": "array", "items": {"type": "object"}, "description": "Actions to execute on each device"},
-                    "project": {"type": "string", "default": "default"}
-                },
-                "required": ["package", "actions"]
-            }
-        ),
-        Tool(
-            name="qa_selftest",
-            description=(
-                "Pillar 9 - Mirror Test: Run the system self-diagnostic suite. "
-                "Checks database integrity, schema, screenshot directory, browser pool, "
-                "ADB bridge, and sentinel daemon. Returns a health score 0-100."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
-        ),
-        Tool(
-            name="qa_orchestrator_status",
-            description=(
-                "Pillar 12 - Neural Mesh Orchestrator: Get the real-time status of all "
-                "12 pillars, recent health scores, and trigger a full event cascade "
-                "(evolution + healing + nightly summary)."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "trigger_cascade": {"type": "boolean", "description": "If true, trigger a full neural mesh event cascade", "default": False}
-                }
-            }
         )
     ]
 
 
-@app.call_tool()
+@server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> List[TextContent]:
     try:
         run_id = generate_uuid()
@@ -1709,110 +1402,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> List[TextContent]:
             }
             return [TextContent(type="text", text=json.dumps(res, ensure_ascii=False))]
 
-        # ── Hermes v8.0 Pillar Handlers ───────────────────────────────────────
 
-        # Pillar 1: Test Genome - evolve
-        if name == "qa_genome_evolve":
-            results = owl_qa_genome.evolve_generation(project)
-            return [TextContent(type="text", text=json.dumps({
-                "status": "evolution_complete",
-                "project": project,
-                "events": results
-            }))]
-
-        # Pillar 1: Test Genome - register flow
-        if name == "qa_genome_register_flow":
-            chrom = owl_qa_genome.TestChromosome(
-                flow_name=arguments["flow_name"],
-                target_url=arguments.get("target_url"),
-                target_app=arguments.get("target_app"),
-                steps=arguments.get("steps", []),
-                project=project
-            )
-            owl_qa_genome.save_chromosome(chrom)
-            return [TextContent(type="text", text=json.dumps({
-                "status": "registered",
-                "flow_name": chrom.flow_name,
-                "step_count": len(chrom.steps)
-            }))]
-
-        # Pillar 2: Causal AI
-        if name == "qa_causal_chain":
-            bug_id = arguments["bug_id"]
-            result = owl_qa_causal.build_causal_chain(bug_id)
-            return [TextContent(type="text", text=json.dumps(result))]
-
-        # Pillar 4: Device Cloud - scan
-        if name == "qa_device_cloud_scan":
-            auto_wifi = arguments.get("auto_connect_wifi", False)
-            if auto_wifi:
-                owl_qa_device_cloud.auto_connect_wifi_devices()
-            serials = owl_qa_device_cloud.get_connected_serials()
-            owl_qa_device_cloud.sync_device_registry(serials)
-            devices = [owl_qa_device_cloud.get_device_metadata(s) for s in serials]
-            return [TextContent(type="text", text=json.dumps({
-                "device_count": len(serials),
-                "devices": devices
-            }))]
-
-        # Pillar 4: Device Cloud - parallel test
-        if name == "qa_device_parallel_test":
-            pkg = arguments["package"]
-            actions = arguments.get("actions", [])
-            results = await owl_qa_device_cloud.run_parallel_android_flow(pkg, actions, project)
-            return [TextContent(type="text", text=json.dumps({
-                "status": "parallel_test_complete",
-                "device_results": results
-            }))]
-
-        # Pillar 9: Mirror Self-Test
-        if name == "qa_selftest":
-            results = await owl_qa_selftest.run_selftest_suite()
-            return [TextContent(type="text", text=json.dumps(results))]
-
-        # Pillar 12: Neural Mesh Orchestrator
-        if name == "qa_orchestrator_status":
-            trigger_cascade = arguments.get("trigger_cascade", False)
-            # Gather latest health score from DB
-            health_data = {}
-            try:
-                with sqlite3.connect(_OWL_DB_PATH) as conn:
-                    conn.row_factory = sqlite3.Row
-                    cursor = conn.execute(
-                        "SELECT * FROM qa_system_health_log ORDER BY created_at DESC LIMIT 1"
-                    )
-                    row = cursor.fetchone()
-                    if row:
-                        health_data = {
-                            "health_score": row["health_score"],
-                            "last_checked": row["created_at"],
-                            "details": json.loads(row["details_json"] or "{}")
-                        }
-            except Exception:
-                health_data = {"health_score": None, "note": "Run qa_selftest first"}
-
-            orchestrator_status = {
-                "neural_mesh_pillars": 12,
-                "active_pillars": [
-                    "Genome (1)", "Causal AI (2)", "Oracle (3)",
-                    "Device Cloud (4)", "Healer (6)", "Economics (7)",
-                    "Knowledge Graph (8)", "Self-Test (9)", "Temporal (10)",
-                    "Protocol (11)", "Orchestrator (12)", "Sensory (5)"
-                ],
-                "sentinel_server": "http://localhost:7700/status",
-                "last_health": health_data
-            }
-
-            if trigger_cascade:
-                try:
-                    cascade_results = await owl_qa_orchestrator.NeuralMeshOrchestrator().trigger_event_cascade()
-                    orchestrator_status["cascade_triggered"] = True
-                    orchestrator_status["cascade_results"] = cascade_results
-                except Exception as cascade_err:
-                    orchestrator_status["cascade_triggered"] = False
-                    orchestrator_status["cascade_error"] = str(cascade_err)
-
-            return [TextContent(type="text", text=json.dumps(orchestrator_status, ensure_ascii=False))]
 
         return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
 
@@ -1841,7 +1431,7 @@ async def main():
         print("[OWL QA MCP] Playwright not loaded. Run: pip install playwright", file=sys.stderr)
 
     async with stdio_server() as (read_stream, write_stream):
-        await app.run(read_stream, write_stream, app.create_initialization_options())
+        await server.run(read_stream, write_stream, server.create_initialization_options())
 
 
 if __name__ == "__main__":

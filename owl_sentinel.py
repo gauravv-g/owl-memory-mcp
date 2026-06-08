@@ -322,6 +322,38 @@ def main():
         )
         return
 
+    if os.path.exists(PID_FILE):
+        try:
+            with open(PID_FILE, "r") as f:
+                old_pid = int(f.read().strip())
+            is_running = False
+            if sys.platform == "win32":
+                res = subprocess.run(
+                    ["tasklist", "/FI", f"PID eq {old_pid}"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                is_running = str(old_pid) in res.stdout
+            else:
+                try:
+                    os.kill(old_pid, 0)
+                    is_running = True
+                except OSError:
+                    is_running = False
+            
+            if is_running:
+                print(f"[Sentinel] Already running (PID: {old_pid}). Exiting.", file=sys.stderr)
+                sys.exit(0)
+            else:
+                print(f"[Sentinel] Cleaning up stale PID file for dead process (PID: {old_pid}).", file=sys.stderr)
+                try:
+                    os.remove(PID_FILE)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     my_pid = os.getpid()
     try:
         with open(PID_FILE, "w") as f:

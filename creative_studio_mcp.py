@@ -198,10 +198,10 @@ def get_bible_character_names(bible: dict) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # MCP Server
 # ─────────────────────────────────────────────────────────────────────────────
-app = Server("creative-studio")
+server = Server("creative-studio")
 
 
-@app.list_tools()
+@server.list_tools()
 async def list_tools():
     return [
         Tool(
@@ -338,7 +338,7 @@ async def list_tools():
     ]
 
 
-@app.call_tool()
+@server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list:
     handlers = {
         "generate_story_bible": handle_generate_bible,
@@ -1195,7 +1195,7 @@ async def handle_brainstorm_narrative(args: dict) -> dict:
 # ═════════════════════════════════════════════════════════════════════════════
 async def main():
     async with stdio_server() as (read_stream, write_stream):
-        await app.run(read_stream, write_stream, app.create_initialization_options())
+        await server.run(read_stream, write_stream, server.create_initialization_options())
 
 if __name__ == "__main__":
     asyncio.run(main())

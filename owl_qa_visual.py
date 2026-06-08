@@ -61,9 +61,9 @@ except ImportError:
 
 # ── Persistent browser pool ──────────────────────────────────────────────────
 # Key insight: launch once, reuse forever. Sub-100ms per action after warmup.
-_browser_pool: dict[str, BrowserContext] = {}   # origin → context
+_browser_pool: dict = {}   # origin → context
 _playwright_instance = None
-_browser_instance: Optional[Browser] = None
+_browser_instance = None
 _pool_lock = asyncio.Lock()
 
 async def get_browser_context(origin: str, headless: bool = True) -> Optional["BrowserContext"]:

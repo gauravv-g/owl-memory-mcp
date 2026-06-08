@@ -150,7 +150,8 @@ async def handle_review(args):
         except Exception as e: return {"error": str(e)}
         l = c.splitlines(); issues = []
         import re
-        checks = [(r"eval\(","CRITICAL","Code injection"),(r"exec\(","CRITICAL","Code injection"),(r"password\s*=\s*['"]","HARDCODED","Hardcoded password"),(r"api[_-]?key\s*=\s*['"]","HARDCODED","Hardcoded API key"),(r"DEBUG\s*=\s*True","CONFIG","DEBUG=True in prod"),(r"verify\s*=\s*False","SECURITY","SSL verify disabled")]
+        Q = "'"
+        checks = [(r"eval\(","CRITICAL","Code injection"),(r"exec\(","CRITICAL","Code injection"),("password\\s*=\\s*["+Q+'"]',"HARDCODED","Hardcoded password"),("api[_-]?key\\s*=\\s*["+Q+'"]',"HARDCODED","Hardcoded API key"),(r"DEBUG\s*=\s*True","CONFIG","DEBUG=True in prod"),(r"verify\s*=\s*False","SECURITY","SSL verify disabled")]
         for pat,sev,msg in checks:
             for i,line in enumerate(l,1):
                 if re.search(pat,line,re.IGNORECASE): issues.append({"line":i,"sev":sev,"msg":msg,"code":line.strip()[:80]})
@@ -163,7 +164,7 @@ async def handle_review(args):
             if f.endswith((".py",".js",".ts",".go",".rs")):
                 try:
                     with open(os.path.join(root,f),encoding="utf-8",errors="replace") as fh: c=fh.read()
-                    n = sum(1 for p in [r"eval\(","password\s*=\s*['"]","api[_-]?key\s*=\s*['"]","DEBUG\s*=\s*True"] if re.search(p,c,re.IGNORECASE))
+                    n = sum(1 for p in [r"eval\(","password\s*=\s*['\"]","api[_-]?key\s*=\s*['\"]","DEBUG\s*=\s*True"] if re.search(p,c,re.IGNORECASE))
                     if n>0: fi.append({"file":os.path.relpath(os.path.join(root,f),t),"issues":n}); ti+=n
                     fc+=1
                 except: pass
@@ -186,9 +187,7 @@ async def handle_explain(args):
             r["imports"] = [x.strip() for x in l if x.strip().startswith(("import ","from ","require("))][:10]
             r["funcs"] = [x.strip() for x in l if any(k in x for k in ["def ","function ","fn "])][:10]
             r["classes"] = [x.strip() for x in l if "class " in x][:10]
-        if d=="detailed": r["start"]="
-".join(l[:20]); r["end"]="
-".join(l[-20:])
+        if d=="detailed": r["start"]="\n".join(l[:20]); r["end"]="\n".join(l[-20:])
         return r
     s=[]
     for root,dirs,files in os.walk(t):
