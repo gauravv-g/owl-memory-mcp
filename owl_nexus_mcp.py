@@ -1,4 +1,4 @@
-import asyncio, json, os, sys, time, sqlite3, hashlib, traceback
+import asyncio, json, os, sys, time, sqlite3, hashlib, traceback, threading
 from datetime import datetime, timezone
 
 try:
@@ -50,9 +50,14 @@ def _now():
     return datetime.now(timezone.utc).isoformat() + "Z"
 
 _counter = [0]
+_counter_lock = threading.Lock()
 def _uid(prefix="task"):
-    _counter[0] += 1
-    return f"{prefix}_{hashlib.md5(f'{time.time()}_{_counter[0]}'.encode()).hexdigest()[:12]}"
+    with _counter_lock:
+        _counter[0] += 1
+        ts = time.time()
+        # Use nanosecond precision + counter + random to guarantee uniqueness
+        raw = f"{prefix}_{ts:.9f}_{_counter[0]}_{os.urandom(4).hex()}"
+        return f"{prefix}_{hashlib.sha256(raw.encode()).hexdigest()[:16]}"
 
 def _topo_sort(tasks):
     task_map = {t["id"]: t for t in tasks}
@@ -77,11 +82,28 @@ async def handle_plan(args):
             row = conn.execute("SELECT dag_json FROM workflow_templates WHERE template_id=?",(template_id,)).fetchone()
         if row:
             tasks = json.loads(row[0]).get("tasks",[])
-            for t in tasks: t["graph_id"]=graph_id; t["status"]="pending"
+            # Regenerate IDs to avoid UNIQUE collisions with existing tasks
+            id_map = {}
+            for t in tasks:
+                old_id = t.get("id", "")
+                new_id = _uid()
+                id_map[old_id] = new_id
+                t["id"] = new_id
+                t["graph_id"] = graph_id
+                t["status"] = "pending"
+            # Remap dependencies to new IDs
+            for t in tasks:
+                deps = t.get("dependencies", [])
+                t["dependencies"] = [id_map.get(d, d) for d in deps]
         else:
             return {"error": f"Template not found: {template_id}"}
     else:
         tasks = _auto_decompose(goal, graph_id)
+    # Debug: check for duplicate IDs
+    task_ids = [t["id"] for t in tasks]
+    if len(task_ids) != len(set(task_ids)):
+        dupes = [tid for tid in task_ids if task_ids.count(tid) > 1]
+        return {"error": f"Duplicate task IDs generated: {dupes}"}
     with get_db() as conn:
         conn.execute("INSERT INTO task_graphs VALUES (?,?,?,?,?,?,?,?,?,?)",
             (graph_id,goal,"planned",now,now,None,len(tasks),0,0,0))

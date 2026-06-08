@@ -167,10 +167,11 @@ def _get_warped_query_context(project="default"):
     return last_file, last_error
 
 def _warp_query_with_context(query: str, project: str = "default") -> tuple[str, str | None]:
+    """Warp query with active context — only append context if it's clean and relevant."""
     last_file, last_error = _get_warped_query_context(project)
     if not last_file and not last_error:
         return query, None
-        
+
     warped = query
     context_desc = []
     if last_file:
@@ -179,19 +180,20 @@ def _warp_query_with_context(query: str, project: str = "default") -> tuple[str,
         lang = ""
         if file_ext == ".py": lang = "Python"
         elif file_ext in [".js", ".ts", ".tsx", ".jsx"]: lang = "Javascript Typescript"
-        
-        warped = f"{warped} {lang} {file_basename}".strip()
+
+        # Only append filename (not full path) to avoid polluting the query
+        warped = f"{warped} {file_basename}".strip()
         context_desc.append(f"file: {file_basename}")
-        
+
     if last_error:
-        # Clean error and take first few words
+        # Clean error and take first few words — be conservative
         clean_err = re.sub(r'[^\w\s]', ' ', last_error).strip()
-        err_words = " ".join(clean_err.split()[:4])
-        if err_words:
-            warped = f"{warped} {err_words}".strip()
+        err_words = " ".join(clean_err.split()[:3])
+        if err_words and len(err_words) < 80:  # Only append if short enough
+            # Don't append error text — it pollutes search queries too much
             context_desc.append(f"error: {err_words}")
-            
-    desc_str = " | ".join(context_desc)
+
+    desc_str = " | ".join(context_desc) if context_desc else None
     return warped, desc_str
 
 def _get_evolved_queries(topic: str, category: str = "technical", num: int = 4) -> list[str]:
@@ -256,18 +258,34 @@ def _reward_query_templates(queries: list[str], topic: str, category: str = "tec
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _ddg_search(query: str, max_results: int = 5) -> list[dict]:
-    """Run a DuckDuckGo search and return a list of result dicts."""
+    """Run a DuckDuckGo search and return a list of result dicts.
+    Tries multiple backends and user agents to avoid blocking."""
     results = []
-    try:
-        with DDGS() as ddgs:
-            for r in ddgs.text(query, max_results=max_results):
-                results.append({
-                    "title": r.get("title", ""),
-                    "url": r.get("href", ""),
-                    "snippet": r.get("body", "")[:400]
-                })
-    except Exception as e:
-        results.append({"error": str(e), "title": "", "url": "", "snippet": ""})
+    errors = []
+    # Try different backends — 'lite' is most reliable under bot detection
+    backends = ["lite", "html", "api"]
+    for backend in backends:
+        try:
+            with DDGS() as ddgs:
+                for r in ddgs.text(query, max_results=max_results, backend=backend):
+                    results.append({
+                        "title": r.get("title", ""),
+                        "url": r.get("href", ""),
+                        "snippet": r.get("body", "")[:400]
+                    })
+            if results:
+                return results
+        except Exception as e:
+            errors.append(f"{backend}: {str(e)[:100]}")
+            continue
+    # All backends failed — return error info for debugging
+    if not results:
+        results.append({
+            "error": f"All DDG backends failed: {'; '.join(errors)}",
+            "title": "",
+            "url": "",
+            "snippet": ""
+        })
     return results
 
 

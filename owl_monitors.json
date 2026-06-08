@@ -1,0 +1,30 @@
+[
+  {
+    "id": "mon_1780882541_Integration_test_mon",
+    "url": "https://example.com",
+    "label": "Integration test monitor",
+    "css_selector": "",
+    "check_interval_minutes": 60,
+    "is_adaptive": false,
+    "notify_on": "any_change",
+    "keyword": "",
+    "created_at": "2026-06-08T01:35:41.947912+00:00Z",
+    "last_checked_at": null,
+    "last_snapshot": null,
+    "is_active": true
+  },
+  {
+    "id": "mon_1780882553_Integration_test_mon",
+    "url": "https://example.com",
+    "label": "Integration test monitor cleanup",
+    "css_selector": "",
+    "check_interval_minutes": 60,
+    "is_adaptive": false,
+    "notify_on": "any_change",
+    "keyword": "",
+    "created_at": "2026-06-08T01:35:53.182036+00:00Z",
+    "last_checked_at": null,
+    "last_snapshot": null,
+    "is_active": true
+  }
+]

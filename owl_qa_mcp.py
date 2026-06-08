@@ -867,7 +867,15 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> List[TextContent]:
             # AI generation mode
             if not flow_steps:
                 if not _anthropic_client:
-                    return [TextContent(type="text", text=json.dumps({"error": "Anthropic client unavailable. Omitted flow_steps could not be generated."}))]
+                    return [TextContent(type="text", text=json.dumps({
+                        "error": "Anthropic client unavailable (no ANTHROPIC_API_KEY). Cannot auto-generate flow steps.",
+                        "hint": "Either set ANTHROPIC_API_KEY environment variable, or provide flow_steps parameter directly.",
+                        "example_flow_steps": [
+                            {"action_type": "navigate", "target": target},
+                            {"action_type": "wait", "value": "2000"},
+                            {"action_type": "click", "target": "button[type=submit]"}
+                        ]
+                    }, indent=2))]
                 
                 # Fetch DOM layout to guide the LLM
                 layout_summary = ""

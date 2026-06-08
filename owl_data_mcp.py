@@ -22,8 +22,11 @@ async def handle_sql_execute(args):
     db = args.get("database",""); query = args.get("query",""); params = args.get("params",[])
     if not db: return {"error": "database path required"}
     try:
-        conn = _connect(db); rows = conn.execute(query, params).fetchall()
-        cols = [d[0] for d in rows[0].description] if rows else []
+        conn = _connect(db)
+        cur = conn.execute(query, params)
+        # Get column names from cursor.description (not Row.description)
+        cols = [d[0] for d in cur.description] if cur.description else []
+        rows = cur.fetchall()
         data = [dict(zip(cols, row)) for row in rows[:1000]]
         conn.close()
         return {"columns": cols, "rows": data, "row_count": len(rows), "truncated": len(rows) > 1000}

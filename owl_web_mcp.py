@@ -637,7 +637,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             if wait_selector:
                 kwargs["wait_selector"] = wait_selector
 
-            page = DynamicFetcher.fetch(url, **kwargs)
+            # Run DynamicFetcher in thread pool to avoid sync_playwright() inside asyncio loop
+            loop = asyncio.get_event_loop()
+            page = await loop.run_in_executor(None, lambda: DynamicFetcher.fetch(url, **kwargs))
             result = _page_to_dict(page, url, css_selector, None, attribute, limit)
             result["mode"] = "dynamic_js"
             return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False))]
