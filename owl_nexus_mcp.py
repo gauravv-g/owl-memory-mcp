@@ -112,22 +112,93 @@ def _group_into_waves(tasks):
 
 # ─── Phase 5: Async Tool Dispatcher ──────────────────────────────────────────
 
-# Map task_type → (server_py_file, tool_name, args_builder_fn)
-# The args_builder_fn takes (task, wave_results) and returns dict of tool args
-TASK_TYPE_TOOL_MAP = {
-    "analyze":          ("owl_code_mcp.py",    "code_analyze",    None),
-    "design":           ("owl_code_mcp.py",    "code_explain",    None),
-    "code_backend":     ("owl_code_mcp.py",    "code_execute",    None),
-    "code_frontend":    ("owl_code_mcp.py",    "code_execute",    None),
-    "code_fix":         ("owl_code_mcp.py",    "code_execute",    None),
-    "build":            ("owl_code_mcp.py",    "code_build",      None),
-    "test":             ("owl_code_mcp.py",    "code_test",       None),
-    "review":           ("owl_code_mcp.py",    "code_review",     None),
-    "etl":              ("owl_data_mcp.py",    "data_etl_pipeline", None),
-    "schema":           ("owl_data_mcp.py",    "data_schema_design", None),
-    "migrate":          ("owl_data_mcp.py",    "data_sql_migrate", None),
-    "deploy":           ("owl_deploy_mcp.py",  "deploy_docker_build", None),
+# ─── Phase 6: Task Dispatch Strategy ──────────────────────────────────────────
+
+# Category A: Auto-executable via subprocess MCP dispatch
+# These tools can run without LLM reasoning — pure analysis/build/test
+AUTO_EXECUTABLE_TYPES = {
+    "analyze", "design", "build", "test", "review", "etl", "schema", "migrate", "deploy",
 }
+
+# Category B: Agent-delegated — need LLM to reason and produce artifacts
+# nexus provides rich context; the agent does the actual work
+AGENT_DELEGATED_TYPES = {
+    "code_backend", "code_frontend", "code_fix", "integration", "report", "execute", "plan",
+}
+
+# Map auto-executable task_type → (server_file, tool_name, default_args_builder)
+# Args builders take (task, wave_results, project_path) → tool args dict
+def _default_analyze_args(task, wave_results, project_path):
+    return {"target": project_path, "depth": "standard"}
+
+def _default_design_args(task, wave_results, project_path):
+    # Feed analyze output as context
+    ctx = _collect_context(task, wave_results)
+    return {"target": project_path, "detail": "standard", "context": ctx}
+
+def _default_code_backend_args(task, wave_results, project_path):
+    ctx = _collect_context(task, wave_results)
+    return {"project_path": project_path, "goal": task.get("description", ""), "context": ctx}
+
+def _default_code_frontend_args(task, wave_results, project_path):
+    ctx = _collect_context(task, wave_results)
+    return {"project_path": project_path, "goal": task.get("description", ""), "context": ctx}
+
+def _default_code_fix_args(task, wave_results, project_path):
+    ctx = _collect_context(task, wave_results)
+    return {"target": project_path, "goal": task.get("description", ""), "context": ctx}
+
+def _default_build_args(task, wave_results, project_path):
+    return {"project_path": project_path, "clean": False}
+
+def _default_test_args(task, wave_results, project_path):
+    return {"project_path": project_path, "coverage": False}
+
+def _default_review_args(task, wave_results, project_path):
+    return {"target": project_path, "focus": "all"}
+
+def _default_etl_args(task, wave_results, project_path):
+    return {"project_path": project_path}
+
+def _default_schema_args(task, wave_results, project_path):
+    return {"project_path": project_path}
+
+def _default_migrate_args(task, wave_results, project_path):
+    db_path = os.path.join(project_path, "data.db")
+    return {"database": db_path}
+
+def _default_deploy_args(task, wave_results, project_path):
+    return {"project_path": project_path, "language": "python"}
+
+TASK_DISPATCH_MAP = {
+    "analyze":       ("owl_code_mcp.py",   "code_analyze",   _default_analyze_args),
+    "design":        ("owl_code_mcp.py",   "code_explain",   _default_design_args),
+    "code_backend":  ("owl_code_mcp.py",   "code_execute",   _default_code_backend_args),
+    "code_frontend": ("owl_code_mcp.py",   "code_execute",   _default_code_frontend_args),
+    "code_fix":      ("owl_code_mcp.py",   "code_execute",   _default_code_fix_args),
+    "build":         ("owl_code_mcp.py",   "code_build",     _default_build_args),
+    "test":          ("owl_code_mcp.py",   "code_test",      _default_test_args),
+    "review":        ("owl_code_mcp.py",   "code_review",    _default_review_args),
+    "etl":           ("owl_data_mcp.py",   "data_etl_pipeline", _default_etl_args),
+    "schema":        ("owl_data_mcp.py",   "data_schema_design", _default_schema_args),
+    "migrate":       ("owl_data_mcp.py",   "data_sql_migrate", _default_migrate_args),
+    "deploy":        ("owl_deploy_mcp.py", "deploy_docker_build", _default_deploy_args),
+}
+
+
+def _collect_context(task, wave_results):
+    """Collect outputs from dependency tasks as context string."""
+    parts = []
+    for dep_id in task.get("dependencies", []):
+        if dep_id in wave_results:
+            out = wave_results[dep_id]
+            if isinstance(out, dict):
+                data = out.get("result", out.get("data", out))
+                parts.append(f"--- {dep_id[:8]} ---\n{json.dumps(data, ensure_ascii=False)[:500]}")
+            else:
+                parts.append(f"--- {dep_id[:8]} ---\n{str(out)[:500]}")
+    return "\n\n".join(parts)
+
 
 def _get_python_exe():
     """Get the Python executable for launching sibling MCP servers."""
@@ -254,59 +325,47 @@ async def _call_mcp_tool(server_file, tool_name, tool_args, timeout=120):
         return {"success": False, "error": f"Subprocess error: {str(e)}"}
 
 
-def _build_tool_args(task_type, task, wave_results):
-    """Build tool arguments for a specific task type, injecting upstream results."""
-    title = task.get("title", "")
-    description = task.get("description", "")
-    base_input = task.get("inputs", {})
-    base_goal = base_input.get("goal", title)
+async def _execute_single_task(task, wave_results, project_path):
+    """Execute a single task using the Phase 6 dispatch strategy.
 
-    # Collect outputs from dependency tasks as context
-    dep_outputs = {}
-    for dep_id in task.get("dependencies", []):
-        if dep_id in wave_results:
-            dep_outputs[dep_id] = wave_results[dep_id]
-
-    args_map = {
-        "analyze":       {"target": base_goal, "depth": "standard"},
-        "design":        {"target": base_goal, "detail": "standard"},
-        "code_backend":  {"code": f"# {title}\n# {description}\npass", "language": "python"},
-        "code_frontend": {"code": f"// {title}\n// {description}\nexport default () => null;", "language": "javascript"},
-        "code_fix":      {"target": base_goal, "goal": f"Fix: {description}"},
-        "build":         {"project_path": ".", "clean": False},
-        "test":          {"project_path": ".", "coverage": False},
-        "review":        {"target": base_goal, "focus": "all"},
-        "etl":           {"project_path": "."},
-        "schema":        {"project_path": "."},
-        "migrate":       {"database": os.path.join(os.path.expanduser("~"), ".hermes", "hermes.db")},
-        "deploy":        {"project_path": ".", "language": "python"},
-    }
-
-    return args_map.get(task_type, {"target": base_goal})
-
-
-async def _execute_single_task(task, wave_results):
-    """Execute a single task by calling the appropriate MCP tool.
+    Auto-executable tasks → subprocess MCP dispatch
+    Agent-delegated tasks → rich context for LLM agent
 
     Returns (success: bool, output: dict).
     """
     task_type = task.get("type", "generic")
+    title = task.get("title", "")
+    description = task.get("description", "")
 
-    # Check if we have a tool mapping for this task type
-    mapping = TASK_TYPE_TOOL_MAP.get(task_type)
-    if mapping is None:
-        # Generic task — return delegation hint (Phase 4 behavior)
+    # Collect upstream context from dependency outputs
+    context = _collect_context(task, wave_results)
+
+    # ── Agent-delegated: return rich context for LLM agent ──
+    if task_type in AGENT_DELEGATED_TYPES or task_type not in AUTO_EXECUTABLE_TYPES:
         return True, {
-            "instruction": f"Execute task of type '{task_type}' using appropriate MCP tools.",
+            "instruction": _get_delegation_hint(task_type),
             "task_type": task_type,
-            "title": task["title"],
-            "description": task.get("description", ""),
+            "title": title,
+            "description": description,
+            "project_path": project_path,
+            "context_from_upstream": context,
+            "dependencies": task.get("dependencies", []),
+            "mode": "agent_delegated",
             "delegation_hint": _get_delegation_hint(task_type),
+        }
+
+    # ── Auto-executable: subprocess MCP dispatch ──
+    mapping = TASK_DISPATCH_MAP.get(task_type)
+    if mapping is None:
+        return True, {
+            "instruction": f"No tool mapping for '{task_type}'.",
+            "task_type": task_type,
+            "title": title,
             "mode": "delegation_hint",
         }
 
-    server_file, tool_name, _ = mapping
-    tool_args = _build_tool_args(task_type, task, wave_results)
+    server_file, tool_name, args_builder = mapping
+    tool_args = args_builder(task, wave_results, project_path)
 
     result = await _call_mcp_tool(server_file, tool_name, tool_args)
 
@@ -328,7 +387,7 @@ async def _execute_single_task(task, wave_results):
         }
 
 
-async def _execute_wave(wave_tasks, wave_results, max_parallel=3):
+async def _execute_wave(wave_tasks, wave_results, max_parallel, project_path):
     """Execute all tasks in a wave concurrently using asyncio.gather.
 
     Returns dict of task_id → output for each task.
@@ -337,7 +396,7 @@ async def _execute_wave(wave_tasks, wave_results, max_parallel=3):
 
     async def _bounded_execute(task):
         async with semaphore:
-            success, output = await _execute_single_task(task, wave_results)
+            success, output = await _execute_single_task(task, wave_results, project_path)
             return task["id"], success, output
 
     # Fan out all wave tasks concurrently (bounded by semaphore)
@@ -352,13 +411,14 @@ async def _execute_wave(wave_tasks, wave_results, max_parallel=3):
     return wave_results
 
 
-# ─── Phase 5: handle_execute — True Async Wave Execution ──────────────────────
+# ─── Phase 6: handle_execute — Project-aware orchestration ────────────────────
 
 async def handle_execute(args):
     graph_id = args.get("graph_id", "")
     dry_run = args.get("dry_run", False)
     parallel = args.get("parallel", True)
     max_parallel = args.get("max_parallel", 3)
+    project_path = args.get("project_path", ".")
 
     with get_db() as conn:
         gr = conn.execute("SELECT * FROM task_graphs WHERE graph_id=?", (graph_id,)).fetchone()
@@ -402,8 +462,8 @@ async def handle_execute(args):
             total_completed += len(wave)
             continue
 
-        # Phase 5: Execute wave tasks concurrently via asyncio.gather
-        wave_results = await _execute_wave(wave, wave_results, max_parallel)
+        # Phase 6: Execute wave tasks concurrently with project_path context
+        wave_results = await _execute_wave(wave, wave_results, max_parallel, project_path)
 
         # Process results and update task states
         for t in wave:
@@ -773,8 +833,8 @@ async def list_tools():
              description="Decompose a goal into a task DAG. Auto-detects type (fullstack, deploy, data, fix, review).",
              inputSchema={"type":"object","properties":{"goal":{"type":"string"},"template_id":{"type":"string"},"auto_template":{"type":"boolean","default":True}},"required":["goal"]}),
         Tool(name="nexus_execute",
-             description="Execute a task graph with async parallel wave execution. Groups independent tasks into concurrent waves, calls MCP tools via subprocess, propagates results between waves, retries failed tasks. Set parallel=false for sequential mode.",
-             inputSchema={"type":"object","properties":{"graph_id":{"type":"string"},"dry_run":{"type":"boolean","default":False},"parallel":{"type":"boolean","default":True},"max_parallel":{"type":"integer","default":3}},"required":["graph_id"]}),
+             description="Execute a task graph with async parallel wave execution. Groups independent tasks into concurrent waves, calls MCP tools via subprocess for auto-executable tasks (analyze, build, test, review, deploy), returns rich delegation context for agent tasks (code_backend, code_frontend, integration). Supports project_path parameter for targeting specific directories.",
+             inputSchema={"type":"object","properties":{"graph_id":{"type":"string"},"dry_run":{"type":"boolean","default":False},"parallel":{"type":"boolean","default":True},"max_parallel":{"type":"integer","default":3},"project_path":{"type":"string","default":"."}},"required":["graph_id"]}),
         Tool(name="nexus_verify",
              description="Verify all completed tasks pass criteria.",
              inputSchema={"type":"object","properties":{"graph_id":{"type":"string"},"max_cycles":{"type":"integer","default":3}},"required":["graph_id"]}),
