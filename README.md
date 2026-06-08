@@ -2,7 +2,7 @@
 
 > Your AI forgets. And sometimes it lies. OWL fixes both.
 
-**Tools: ~106 | Servers: 10 | Cloud required: Zero**
+**Tools: ~169 | Servers: 21 | Cloud required: Zero**
 
 The local brain that sits behind your AI coding editor to prevent memory loss, block hallucinations, and automatically verify and repair your app code as you build.
 
@@ -65,19 +65,24 @@ The math: OWL loads only what is relevant. It partitions file context into activ
 ## Ten Servers. One Engineering Team.
 
 ```
-owl-nexus       → Meta-orchestration (18 tools)     Task DAGs, planning, verification, agent feedback loop
-owl-research    → Deep research (13 tools)          Multi-query synthesis, article extraction
-creative-studio → Creative writing (13 tools)        Stories, scoring, pacing, continuity
-owl-deploy      → Infrastructure (12 tools)          Docker, K8s, CI/CD
-owl-code        → Code intelligence (11 tools)       Analyze, build, test, lint, review, refactor, explain
-owl-data        → Data operations (11 tools)         SQL, schema, CSV, ETL
+owl-nexus       → Meta-orchestration (11 tools)     Task DAGs, planning, verification, agent feedback loop
+owl-security    → Security audit (10 tools)         Secret scanning, OWASP Top 10, CVE lookup, CORS/auth audit
+owl-research    → Deep research (10 tools)          Multi-query synthesis, article extraction
+owl-workflow    → CI/CD pipelines (10 tools)        GitHub Actions, GitLab CI, Jenkins, Azure DevOps, CircleCI
+owl-git         → Git intelligence (10 tools)       Smart commits, branch analysis, conflict prediction, PR gen
+creative-studio → Creative writing (10 tools)       Stories, scoring, pacing, continuity
+owl-deploy      → Infrastructure (9 tools)          Docker, K8s, CI/CD config
+owl-code        → Code intelligence (8 tools)       Analyze, build, test, lint, review, refactor, explain
+owl-agent       → Multi-agent orchestration (8 tools) Spawn, collect, merge, plan, execute
+owl-data        → Data operations (8 tools)         SQL, schema, CSV, ETL
+owl-qa          → Quality assurance (24 tools)      E2E test flows, regression, visual, API, Android
+owl-web         → Web intelligence (11 tools)       Scraping, stealth, dynamic JS, monitoring
+owl-qa-android  → Android automation (12 tools)    ADB, uiautomator2, screenshots, taps, swipes
 owl-qa-visual   → Visual QA (9 tools)               Screenshots, layout, visual regression
-owl-unified     → Unified memory+web+research (8 tools)  perceive, remember, recall, research, fetch, qa_test, dream
-owl-qa          → Quality assurance (4 tools)        E2E test flows, regression checks
-owl-qa-android  → Android automation (12 tools)     ADB, uiautomator2, screenshots, taps, swipes
-owl-qa-economics → Bug economics (3 tools)           Debt ROI, prioritized fix queues
-owl-web         → Web intelligence (4 tools)         Scraping, stealth, dynamic JS
-owl-sentinel    → Monitoring (4 tools)               Change detection, alerts
+owl-unified     → Unified memory+web+research (8 tools)  perceive, remember, recall, research, fetch
+owl-qa-economics → Bug economics (3 tools)          Debt ROI, prioritized fix queues
+owl-sentinel    → Monitoring (4 tools)              Change detection, alerts
+owl-docs        → Auto-documentation (9 tools)      README, API docs, architecture diagrams, CHANGELOG
 ```
 
 All servers run as stdio MCP servers managed by Hermes Agent.
@@ -155,10 +160,15 @@ hermes-custom-mcps/
 ├── owl_research_mcp.py       # Deep research engine (1630 lines)
 ├── creative_studio_mcp.py    # Creative writing tools (1216 lines)
 ├── owl_web_mcp.py            # Web scraping (1197 lines)
+├── owl_qa_mcp.py             # QA test framework (1475 lines)
+├── owl_security_mcp.py       # Security audit engine (1187 lines) [NEW]
+├── owl_docs_mcp.py           # Auto-documentation (983 lines) [NEW]
+├── owl_workflow_mcp.py       # CI/CD pipeline generator (892 lines) [NEW]
+├── owl_git_mcp.py            # Git intelligence (924 lines) [NEW]
+├── owl_agent_mcp.py          # Multi-agent orchestration (434 lines) [NEW]
 ├── owl_code_mcp.py           # Code intelligence (251 lines)
 ├── owl_data_mcp.py           # Data operations (184 lines)
 ├── owl_deploy_mcp.py         # Infrastructure (195 lines)
-├── owl_qa_mcp.py             # QA test framework (1475 lines)
 ├── owl_qa_visual.py          # Visual QA (877 lines)
 ├── owl_qa_android.py         # Android automation (13 tools, MCP server)
 ├── owl_qa_economics.py       # Bug economics (3 tools, MCP server)
@@ -175,7 +185,7 @@ hermes-custom-mcps/
 ├── owl_nexus.db             # Nexus cache
 ├── creative_studio.db        # Creative studio data
 ├── memory-v5.db             # Memory v5 data
-└── PHASE2.md .. PHASE7.md   # Phase documentation
+└── PHASE2.md .. PHASE9.md   # Phase documentation
 ```
 
 ## License
