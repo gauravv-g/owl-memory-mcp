@@ -49,8 +49,10 @@ init_db()
 def _now():
     return datetime.now(timezone.utc).isoformat() + "Z"
 
+_counter = [0]
 def _uid(prefix="task"):
-    return f"{prefix}_{hashlib.md5(str(time.time()).encode()).hexdigest()[:12]}"
+    _counter[0] += 1
+    return f"{prefix}_{hashlib.md5(f'{time.time()}_{_counter[0]}'.encode()).hexdigest()[:12]}"
 
 def _topo_sort(tasks):
     task_map = {t["id"]: t for t in tasks}
