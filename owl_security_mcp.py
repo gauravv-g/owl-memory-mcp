@@ -203,12 +203,12 @@ async def handle_secret_scan(args: dict) -> dict:
     files_skipped = 0
 
     for root, dirs, files in os.walk(path):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        dirs[:] = [d for d in dirs if d not in shared.SKIP_DIRS]
         for filename in files:
             filepath = os.path.join(root, filename)
             ext = os.path.splitext(filename)[1].lower()
 
-            if ext in SKIP_EXTENSIONS:
+            if ext in shared.SKIP_EXTENSIONS:
                 files_skipped += 1
                 continue
 
@@ -413,12 +413,12 @@ async def handle_owasp_scan(args: dict) -> dict:
     files_scanned = 0
 
     for root, dirs, files in os.walk(path):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        dirs[:] = [d for d in dirs if d not in shared.SKIP_DIRS]
         for filename in files:
             filepath = os.path.join(root, filename)
             ext = os.path.splitext(filename)[1].lower()
 
-            if ext in SKIP_EXTENSIONS:
+            if ext in shared.SKIP_EXTENSIONS:
                 continue
             if ext not in (".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java",
                            ".rb", ".php", ".c", ".cpp", ".h", ".cs", ".swift", ".kt"):
@@ -542,7 +542,7 @@ async def handle_code_audit(args: dict) -> dict:
     }
 
     for root, dirs, files in os.walk(path):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        dirs[:] = [d for d in dirs if d not in shared.SKIP_DIRS]
         for filename in files:
             filepath = os.path.join(root, filename)
             ext = os.path.splitext(filename)[1].lower()
@@ -906,7 +906,7 @@ async def handle_auth_audit(args: dict) -> dict:
     }
 
     for root, dirs, files in os.walk(path):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        dirs[:] = [d for d in dirs if d not in shared.SKIP_DIRS]
         for filename in files:
             filepath = os.path.join(root, filename)
             ext = os.path.splitext(filename)[1].lower()
@@ -980,7 +980,7 @@ async def handle_api_audit(args: dict) -> dict:
     }
 
     for root, dirs, files in os.walk(path):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        dirs[:] = [d for d in dirs if d not in shared.SKIP_DIRS]
         for filename in files:
             filepath = os.path.join(root, filename)
             ext = os.path.splitext(filename)[1].lower()
