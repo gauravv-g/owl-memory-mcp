@@ -128,6 +128,19 @@ async def handle_etl_pipeline(args):
     steps.append("Validate row counts")
     return {"source": src, "destination": dst, "steps": steps}
 
+
+TOOL_CATEGORIES = {
+    "data_sql_execute": "core",
+    "data_sql_migrate": "core",
+    "data_schema_design": "core",
+    "data_csv_import": "core",
+    "data_csv_export": "core",
+    "data_db_inspect": "utility",
+    "data_db_create": "utility",
+    "data_etl_pipeline": "advanced"
+}
+TIER = "Tier-2-domain"
+
 server = Server("owl-data")
 
 @server.list_tools()

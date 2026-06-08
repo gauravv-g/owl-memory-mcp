@@ -263,6 +263,19 @@ async def handle_dashboard(args):
                      "rate":f"{(st[1]/st[0]*100):.1f}%" if st[0] else "N/A"},
             "templates":[{"name":r[0],"uses":r[1]} for r in tmpls]}
 
+
+TOOL_CATEGORIES = {
+    "nexus_plan": "core",
+    "nexus_execute": "core",
+    "nexus_verify": "core",
+    "nexus_status": "utility",
+    "nexus_cancel": "utility",
+    "nexus_template": "advanced",
+    "nexus_save_template": "advanced",
+    "nexus_dashboard": "utility"
+}
+TIER = "Tier-1-core"
+
 server = Server("owl-nexus")
 
 @server.list_tools()

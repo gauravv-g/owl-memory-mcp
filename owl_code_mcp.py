@@ -198,6 +198,18 @@ async def handle_explain(args):
         for f in files[:10]: s.append("  "*(lv+1)+f)
     return {"dir":t,"structure":s[:100]}
 
+TOOL_CATEGORIES = {
+    "code_analyze":    "core",
+    "code_build":      "core",
+    "code_test":       "core",
+    "code_lint":       "core",
+    "code_execute":    "core",
+    "code_review":     "core",
+    "code_refactor":   "advanced",
+    "code_explain":    "core",
+}
+TIER = "Tier-1-core"
+
 server = Server("owl-code")
 
 @server.list_tools()

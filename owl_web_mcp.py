@@ -75,6 +75,22 @@ try:
 except ImportError:
     pass
 
+
+TOOL_CATEGORIES = {
+    "web_fetch": "core",
+    "web_fetch_stealthy": "core",
+    "web_fetch_dynamic": "core",
+    "web_scrape_adaptive": "core",
+    "web_batch_fetch": "core",
+    "web_extract_structured": "core",
+    "web_diff": "advanced",
+    "web_monitor_start": "advanced",
+    "web_session_scrape": "core",
+    "web_research_crawl": "core",
+    "web_trace_claim": "specialized"
+}
+TIER = "Tier-1-core"
+
 server = Server("owl-web")
 
 

@@ -198,6 +198,21 @@ def get_bible_character_names(bible: dict) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # MCP Server
 # ─────────────────────────────────────────────────────────────────────────────
+
+TOOL_CATEGORIES = {
+    "generate_story_bible": "core",
+    "check_continuity": "core",
+    "calibrate_heat": "core",
+    "score_prose": "core",
+    "export_format": "core",
+    "grammar_check_v2": "core",
+    "trope_innovate": "advanced",
+    "character_voice_check": "advanced",
+    "scene_pacing_analysis": "advanced",
+    "brainstorm_narrative": "core"
+}
+TIER = "Tier-2-domain"
+
 server = Server("creative-studio")
 
 

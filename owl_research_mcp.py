@@ -487,6 +487,21 @@ def _build_argumentative_synthesis(query: str, results: list[dict], extracted_ar
 # MCP Server
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+TOOL_CATEGORIES = {
+    "research_quick": "core",
+    "research_deep": "core",
+    "research_compare": "core",
+    "extract_article": "core",
+    "research_follow_up": "advanced",
+    "research_on_file": "core",
+    "get_research_history": "utility",
+    "research_synthesize": "core",
+    "research_first_principles": "advanced",
+    "research_diff": "specialized"
+}
+TIER = "Tier-1-core"
+
 server = Server("owl-research")
 
 TOOLS = [

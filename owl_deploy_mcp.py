@@ -135,6 +135,20 @@ async def handle_deploy_status(args):
         if len(parts) >= 2: containers.append({"name":parts[0],"status":parts[1]})
     return {"containers": containers, "count": len(containers)}
 
+
+TOOL_CATEGORIES = {
+    "deploy_dockerfile_generate": "core",
+    "deploy_docker_build": "core",
+    "deploy_compose_generate": "core",
+    "deploy_compose_up": "core",
+    "deploy_compose_down": "core",
+    "deploy_k8s_generate": "advanced",
+    "deploy_ci_generate": "advanced",
+    "deploy_infra_scan": "utility",
+    "deploy_status": "utility"
+}
+TIER = "Tier-2-domain"
+
 server = Server("owl-deploy")
 
 @server.list_tools()

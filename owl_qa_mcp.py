@@ -37,6 +37,35 @@ from owl_shared_intelligence import _OWL_DB_PATH
 
 
 # -- Initialize FastMCP Server ────────────────────────────────────────────────
+
+TOOL_CATEGORIES = {
+    "qa_inspect_web": "core",
+    "qa_android_inspect": "core",
+    "qa_api_inspect": "core",
+    "qa_interact_web": "core",
+    "qa_android_interact": "core",
+    "qa_test_flow": "core",
+    "qa_regression_check": "core",
+    "qa_sherlock": "core",
+    "qa_accessibility_audit": "advanced",
+    "qa_performance_probe": "advanced",
+    "qa_chaos_probe": "advanced",
+    "qa_harmonic_audit": "specialized",
+    "qa_sentinel_register": "specialized",
+    "qa_explain_bug": "utility",
+    "qa_predict_bugs": "advanced",
+    "qa_sensory_audit": "specialized",
+    "qa_economics_report": "specialized",
+    "qa_knowledge_graph": "specialized",
+    "qa_temporal_analysis": "specialized",
+    "qa_protocol_test": "specialized",
+    "qa_compare_apps": "advanced",
+    "qa_load_test": "advanced",
+    "qa_user_story_generate": "utility",
+    "qa_competitive_audit": "specialized"
+}
+TIER = "Tier-3-specialized"
+
 server = Server("owl-qa")
 
 # -- Anthropic client setup ───────────────────────────────────────────────────
