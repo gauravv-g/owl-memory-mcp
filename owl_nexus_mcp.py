@@ -72,6 +72,36 @@ def _topo_sort(tasks):
     for t in tasks: visit(t["id"])
     return result
 
+def _group_into_waves(tasks):
+    """Group topologically-sorted tasks into parallel execution waves.
+
+    Each wave contains tasks whose dependencies are all in previous waves.
+    Returns list of waves, where each wave is a list of tasks.
+    """
+    task_map = {t["id"]: t for t in tasks}
+    completed = set()
+    waves = []
+    remaining = list(tasks)
+    while remaining:
+        # A task is ready if all its dependencies are in completed
+        wave = []
+        still_remaining = []
+        for t in remaining:
+            deps = json.loads(t.get("dependencies", "[]"))
+            if all(d in completed for d in deps):
+                wave.append(t)
+            else:
+                still_remaining.append(t)
+        if not wave:
+            # Circular dependency — force remaining into one wave
+            wave = still_remaining
+            still_remaining = []
+        for t in wave:
+            completed.add(t["id"])
+        waves.append(wave)
+        remaining = still_remaining
+    return waves
+
 async def handle_plan(args):
     goal = args.get("goal","")
     template_id = args.get("template_id","")
@@ -156,32 +186,113 @@ def _auto_decompose(goal, graph_id):
 async def handle_execute(args):
     graph_id = args.get("graph_id","")
     dry_run = args.get("dry_run", False)
+    parallel = args.get("parallel", True)  # Enable parallel wave execution by default
+    max_parallel = args.get("max_parallel", 3)  # Max concurrent sub-agents per wave
+
     with get_db() as conn:
         gr = conn.execute("SELECT * FROM task_graphs WHERE graph_id=?",(graph_id,)).fetchone()
         if not gr: return {"error": f"Graph not found: {graph_id}"}
         rows = conn.execute("SELECT * FROM tasks WHERE graph_id=?",(graph_id,)).fetchall()
-    tasks = {}
+
+    tasks = []
     for r in rows:
-        tasks[r[0]] = {"id":r[0],"graph_id":r[1],"type":r[2],"title":r[3],"description":r[4],
+        tasks.append({"id":r[0],"graph_id":r[1],"type":r[2],"title":r[3],"description":r[4],
             "status":r[5],"dependencies":json.loads(r[6]),"inputs":json.loads(r[7]),
-            "outputs":json.loads(r[8]) if r[8] else {}}
+            "outputs":json.loads(r[8]) if r[8] else {}})
+
     now = _now()
     with get_db() as conn:
         conn.execute("UPDATE task_graphs SET status='running',updated_at=? WHERE graph_id=?",(now,graph_id))
-    log = []
-    for t in _topo_sort(list(tasks.values())):
-        t["status"] = "completed" if dry_run else "ready_for_execution"
-        t["outputs"] = {"dry_run":True,"message":f"Would execute: {t['title']}"} if dry_run else {"instruction":"Execute via domain server","task_type":t["type"],"title":t["title"],"description":t["description"],"inputs":t["inputs"]}
-        log.append({"task_id":t["id"],"title":t["title"],"status":t["status"]})
+
+    # Group into parallel execution waves
+    sorted_tasks = _topo_sort(tasks)
+    waves = _group_into_waves(sorted_tasks) if parallel else [[t] for t in sorted_tasks]
+
+    execution_log = []
+    total_completed = 0
+    total_failed = 0
+
+    for wave_idx, wave in enumerate(waves):
+        if dry_run:
+            # Dry run: mark all as completed without executing
+            for t in wave:
+                t["status"] = "completed"
+                t["outputs"] = {"dry_run": True, "message": f"Would execute: {t['title']}"}
+                execution_log.append({"wave": wave_idx, "task_id": t["id"], "title": t["title"], "status": "completed", "mode": "dry_run"})
+            total_completed += len(wave)
+            continue
+
+        # Execute wave: run tasks sequentially within a wave (MCP is single-threaded)
+        # In a future iteration, this could use concurrent asyncio for I/O-bound tasks
+        for t in wave:
+            t["status"] = "executing"
+            with get_db() as conn:
+                conn.execute("UPDATE tasks SET status='executing',updated_at=? WHERE task_id=?",
+                    (_now(), t["id"]))
+
+            # Build execution result
+            t["status"] = "ready_for_execution"
+            t["outputs"] = {
+                "instruction": "Execute via agent delegation",
+                "task_type": t["type"],
+                "title": t["title"],
+                "description": t["description"],
+                "inputs": t["inputs"],
+                "wave": wave_idx,
+                "parallel_group": [x["id"] for x in wave],
+                "delegation_hint": _get_delegation_hint(t["type"]),
+            }
+            execution_log.append({
+                "wave": wave_idx,
+                "task_id": t["id"],
+                "title": t["title"],
+                "status": "ready_for_execution",
+                "parallel_with": [x["id"] for x in wave if x["id"] != t["id"]],
+            })
+
+        total_completed += len(wave)
+
+    # Persist all task states
     with get_db() as conn:
-        for t in tasks.values():
-            conn.execute("UPDATE tasks SET status=?,outputs=?,updated_at=? WHERE task_id=?",(t["status"],json.dumps(t["outputs"]),_now(),t["id"]))
-    done = all(t["status"]=="completed" for t in tasks.values())
-    return {"graph_id":graph_id,"status":"completed" if done else "ready","total_tasks":len(tasks),
-            "completed":sum(1 for t in tasks.values() if t["status"]=="completed"),
-            "ready":sum(1 for t in tasks.values() if t["status"]=="ready_for_execution"),
-            "execution_log":log,
-            "tasks":[{"id":t["id"],"title":t["title"],"status":t["status"],"type":t["type"]} for t in tasks.values()]}
+        for t in tasks:
+            conn.execute("UPDATE tasks SET status=?,outputs=?,updated_at=? WHERE task_id=?",
+                (t["status"], json.dumps(t["outputs"]), _now(), t["id"]))
+        conn.execute("UPDATE task_graphs SET status=?,completed_tasks=?,failed_tasks=?,updated_at=? WHERE graph_id=?",
+            ("ready", total_completed, total_failed, _now(), graph_id))
+
+    return {
+        "graph_id": graph_id,
+        "status": "ready",
+        "execution_mode": "parallel" if parallel else "sequential",
+        "total_tasks": len(tasks),
+        "waves": len(waves),
+        "wave_summary": [{"wave": i, "tasks": len(w), "task_ids": [t["id"] for t in w]} for i, w in enumerate(waves)],
+        "completed": total_completed,
+        "failed": total_failed,
+        "execution_log": execution_log,
+        "tasks": [{"id": t["id"], "title": t["title"], "status": t["status"], "type": t["type"], "wave": t["outputs"].get("wave", 0)} for t in tasks],
+    }
+
+def _get_delegation_hint(task_type):
+    """Map task types to delegation instructions."""
+    hints = {
+        "code_backend": "Use owl-code tools (code_analyze, code_build, code_test). Write code, commit changes.",
+        "code_frontend": "Use owl-code tools. Implement UI components. Ensure responsive design.",
+        "code_fix": "Use owl-code tools. Find the bug, implement fix, verify with tests.",
+        "test": "Use owl-qa tools (ensure server enabled). Run full test suite. Report failures.",
+        "deploy": "Use owl-deploy tools (ensure server enabled). Build, push, verify health.",
+        "analyze": "Use owl-code code_analyze + owl-web fetch. Understand the problem space.",
+        "design": "Review architecture. Create design doc. No code yet.",
+        "integration": "Connect frontend to backend. Test API contracts.",
+        "verify": "Use nexus_verify. Check all tests pass. Review for quality.",
+        "schema": "Use owl-data tools (ensure server enabled). Design tables, indexes.",
+        "etl": "Use owl-data tools. Build extraction and loading pipeline.",
+        "review": "Use owl-code code_review. Security, quality, performance.",
+        "report": "Synthesize findings. Write clear report.",
+        "migrate": "Use owl-data data_sql_migrate. Apply schema changes safely.",
+        "build": "Use owl-code code_build. Compile and package.",
+    }
+    return hints.get(task_type, f"Execute task of type '{task_type}' using appropriate MCP tools.")
 
 async def handle_verify(args):
     graph_id = args.get("graph_id","")
@@ -283,8 +394,8 @@ async def list_tools():
     return [
         Tool(name="nexus_plan",description="Decompose a goal into a task DAG. Auto-detects type (fullstack, deploy, data, fix, review).",
             inputSchema={"type":"object","properties":{"goal":{"type":"string"},"template_id":{"type":"string"},"auto_template":{"type":"boolean","default":True}},"required":["goal"]}),
-        Tool(name="nexus_execute",description="Execute a task graph in topological order.",
-            inputSchema={"type":"object","properties":{"graph_id":{"type":"string"},"dry_run":{"type":"boolean","default":False}},"required":["graph_id"]}),
+        Tool(name="nexus_execute",description="Execute a task graph in topological order. Groups independent tasks into parallel waves. Returns wave structure and delegation hints for each task. Set parallel=false for sequential mode.",
+            inputSchema={"type":"object","properties":{"graph_id":{"type":"string"},"dry_run":{"type":"boolean","default":False},"parallel":{"type":"boolean","default":True},"max_parallel":{"type":"integer","default":3}},"required":["graph_id"]}),
         Tool(name="nexus_verify",description="Verify all completed tasks pass criteria.",
             inputSchema={"type":"object","properties":{"graph_id":{"type":"string"},"max_cycles":{"type":"integer","default":3}},"required":["graph_id"]}),
         Tool(name="nexus_status",description="Check task graph status. Omit graph_id for all.",
