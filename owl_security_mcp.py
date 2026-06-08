@@ -1151,7 +1151,7 @@ ALL_TOOLS = [
     ("security_headers_check", "HTTP security headers analysis with grading", handle_headers_check),
     ("security_cors_audit", "CORS misconfiguration detection", handle_cors_audit),
     ("security_auth_audit", "Authentication/authorization flow audit", handle_auth_audit),
-    ("security_report", "Comprehensive security report combining all scans", handle_report),
+    ("security_report", "Comprehensive security report combining all scans", handle_security_report),
 ]
 
 @server.list_tools()
