@@ -224,7 +224,7 @@ See `references/trope-library.md` for full library.
 ## Session Management
 
 **Start of session:**
-1. Load `.workflow-state.json`
+1. Load `.workflow-state.json` (use `ProjectState` from smart-tools for structured state)
 2. Load `00-bible.json`
 3. Identify current stage
 4. Show status: "Chapter 3, Scene 2 — draft complete, awaiting grammar check"
@@ -234,6 +234,32 @@ See `references/trope-library.md` for full library.
 2. Update `.workflow-state.json`
 3. Note style observations
 4. State next session's starting point
+
+## Smart Tools Integration
+
+For faster operations, use the smart-tools layer:
+
+```python
+import sys
+sys.path.insert(0, r"C:\Users\shiva\hermes-custom-mcps\tools")
+from smart_tools import smart_read, smart_search, ProjectState, SmartTodo
+
+# Batch read all chapter drafts
+results = smart_read(["chapters/ch01/final.md", "chapters/ch02/final.md"])
+
+# Search across all chapters
+results = smart_search("maine bola", ["chapters/"])  # Find grammar errors
+
+# Track project state
+state = ProjectState(".")
+state.set_task("Writing chapter 4, Scene 2")
+print(state.get_summary())
+
+# Track writing tasks with dependencies
+todo = SmartTodo(".")
+todo.add("Draft ch4 scene 2", priority=1)
+todo.add("Grammar check ch4", priority=2, depends_on=["Draft ch4 scene 2"])
+```
 
 ## Quality Standards
 
