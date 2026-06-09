@@ -1,0 +1,61 @@
+{
+  "chapter_num": 1,
+  "goal": "[What must this chapter accomplish?]",
+  "pov": "third_limited",
+  "heat_level": 2,
+  "total_scenes": 4,
+  "estimated_total_words": 3200,
+  "tension_arc": [3, 5, 8, 6],
+  "heat_arc": [1, 2, 3, 2],
+  "scenes": [
+    {
+      "scene_num": 1,
+      "goal": "Setup — establish the world and desire",
+      "tension_target": 3,
+      "heat_target": 1,
+      "pov": "third_limited",
+      "characters_in_scene": ["[char_1]", "[char_2]"],
+      "key_moment": "[The one beat that defines this scene]",
+      "word_target": 750,
+      "transition_to_next": "cliffhanger"
+    },
+    {
+      "scene_num": 2,
+      "goal": "Complication — something shifts, tension rises",
+      "tension_target": 5,
+      "heat_target": 2,
+      "pov": "third_limited",
+      "characters_in_scene": ["[char_1]", "[char_2]"],
+      "key_moment": "[The one beat that defines this scene]",
+      "word_target": 850,
+      "transition_to_next": "cliffhanger"
+    },
+    {
+      "scene_num": 3,
+      "goal": "Crisis — the moment of maximum tension",
+      "tension_target": 8,
+      "heat_target": 3,
+      "pov": "third_limited",
+      "characters_in_scene": ["[char_1]", "[char_2]"],
+      "key_moment": "[The one beat that defines this scene]",
+      "word_target": 1050,
+      "transition_to_next": "cliffhanger"
+    },
+    {
+      "scene_num": 4,
+      "goal": "Resolution — emotional landing, new status quo",
+      "tension_target": 6,
+      "heat_target": 2,
+      "pov": "third_limited",
+      "characters_in_scene": ["[char_1]"],
+      "key_moment": "[The one beat that defines this scene]",
+      "word_target": 550,
+      "transition_to_next": "resolution"
+    }
+  ],
+  "chapter_structure": {
+    "act_1": "Scenes 1: Setup",
+    "act_2": "Scenes 2-3: Escalation",
+    "act_3": "Scene 4: Climax + Resolution"
+  }
+}

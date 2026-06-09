@@ -1,0 +1,25 @@
+{
+  "series_name": "[SERIES NAME]",
+  "project_dir": "~/creative-writing-toolkit/projects/[series-name]",
+  "current_stage": "init",
+  "current_chapter": 0,
+  "current_scene": 0,
+  "style_profile": {
+    "avg_sentence_length": 0,
+    "frequent_words": [],
+    "overused_phrases": [],
+    "common_grammar_mistakes": [],
+    "preferred_heat_level": 0
+  },
+  "quality_history": {
+    "grammar_errors_per_chapter": [],
+    "heat_deviation_per_chapter": [],
+    "voice_consistency_score": []
+  },
+  "chapters_completed": [],
+  "last_session": {
+    "date": "[ISO timestamp]",
+    "ended_at": "[What was being worked when session ended]",
+    "next_action": "[What to start with next session]"
+  }
+}

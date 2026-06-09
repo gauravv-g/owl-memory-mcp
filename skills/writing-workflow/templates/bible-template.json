@@ -1,0 +1,100 @@
+{
+  "series_name": "[SERIES NAME]",
+  "genre": "erotica",
+  "premise": "[One-paragraph premise — what is this story about?]",
+  "setting": "[Where/when does this take place?]",
+  "tone": "raw",
+  "heat_level": 3,
+  "created_at": "[ISO timestamp]",
+  "characters": [
+    {
+      "id": "char_1",
+      "name": "[NAME]",
+      "gender": "female",
+      "age": 25,
+      "role": "protagonist",
+      "physical_description": "[Build, skin, hair, distinctive feature]",
+      "voice_markers": ["female", "age_25", "first_person"],
+      "psychology": {
+        "desire": "[What they want most]",
+        "fear": "[What they're most afraid of]",
+        "contradiction": "[The thing about them that doesn't make sense — and makes them human]",
+        "sexual_identity": "[How they relate to their own desire]"
+      },
+      "arc": {
+        "starts_at": "[Who they are at the beginning]",
+        "wound_that_drives": "[The old wound that makes them who they are]",
+        "what_they_learn": "[What the story teaches them]",
+        "ends_at": "[Who they become]"
+      },
+      "voice": {
+        "speech_pattern": "[How they talk — short? formal? Hinglish-heavy?]",
+        "verbal_tics": ["[word they overuse]", "[phrase they repeat]"],
+        "taboo_words_teases": ["[words they use as teases]"]
+      },
+      "heat_specific": {
+        "default_position_preference": "[What they default to]",
+        "power_tendency": "negotiating",
+        "arousal_triggers": ["touch_through_clothes", "eye_contact_held_too_long", "voice_drop"],
+        "vulnerable_zones": ["[physical spots that undo them]"],
+        "after_sex_behavior": "[What they do after — cling? withdraw? joke?]"
+      },
+      "relationships": {
+        "[other_char_name]": "[nature of relationship — enemy, lover, forbidden, etc.]"
+      }
+    }
+  ],
+  "world_rules": {
+    "setting_details": "[Specific location — apartment, haveli, chawl, college hostel]",
+    "time_period": "contemporary",
+    "cultural_context": "Indian",
+    "language": "Hinglish (Roman script)",
+    "walls": "[thin/thick — privacy level matters for tension]",
+    "key_locations": ["[place 1]", "[place 2]", "[place 3]"],
+    "sound_profile": "[What's always in the background — traffic, pressure cooker, neighbors]",
+    "smell_palette": "[3-5 smells that define this world]",
+    "social_rules": {
+      "public_behavior": "[What's expected in public]",
+      "private_behavior": "[What happens behind closed doors]",
+      "taboos": ["[thing 1]", "[thing 2]"],
+      "power_structures": ["[who has power and why]"]
+    }
+  },
+  "continuity_rules": {
+    "name_consistency": "Each character uses ONE name throughout",
+    "position_consistency": "Sex positions must have explicit transitions",
+    "timeline_consistency": "Track character ages and time progression",
+    "grammar_rules": "Female narrator: maine boli/dekhi/puchi/ki (not bola/pucha/dekha/kiya)"
+  },
+  "plot_structure": {
+    "acts": 3,
+    "act_1": "Setup: character intro, world, inciting incident",
+    "act_2": "Escalation: tension build, complications, deepening",
+    "act_3": "Climax + resolution: payoff, consequences, emotional landing"
+  },
+  "tone_guidelines": {
+    "default": "raw",
+    "forbidden_phrases": [
+      "they made love",
+      "intimate moments",
+      "pleasure",
+      "commensurate with",
+      "palpable",
+      "delve",
+      "tapestry",
+      "pivotal",
+      "crucial"
+    ],
+    "required_elements": [
+      "direct language",
+      "physical detail",
+      "all 5 senses",
+      "emotional stakes",
+      "power dynamics"
+    ]
+  },
+  "tropes": [
+    "[trope 1]",
+    "[trope 2]"
+  ]
+}
