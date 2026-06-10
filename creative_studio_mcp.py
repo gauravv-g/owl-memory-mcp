@@ -1,8 +1,8 @@
-"""Creative Studio MCP v5 — World-class writing studio.
-18 tools: analyze, generate, transform, and bring worlds to alive.
+"""Creative Studio MCP v6 - World-class writing studio. Capable of creating any world, alive.
+25 tools: world engine, character AI, plot engine, scene builder, quality pipeline, export.
 
 Perfection is when there's nothing to remove.
-Every tool here creates or transforms — none are empty shells.
+Every tool here creates or transforms - none are empty shells.
 """
 
 import asyncio
@@ -41,7 +41,7 @@ COMMON_NAME_EXCLUDES = {
     "After", "Before", "Under", "Over", "Above", "Below", "During",
 }
 
-# Grammar rules — shared across all tools that check grammar
+# Grammar rules - shared across all tools that check grammar
 GRAMMAR_VERB_RULES = [
     (r'\bmaine bola\b', 'maine boli', 'female past verb'),
     (r'\bmaine pucha\b', 'maine puchi', 'female past verb'),
@@ -92,6 +92,43 @@ POWER_MARKERS = {
     'negotiating': ['asked', 'offered', 'suggested', 'hesitated', 'considered', 'wondered', 'kya', 'sochenge', 'thoda'],
     'resisting': ['refused', 'pushed back', 'resisted', 'fought', 'struggled', 'nahi', 'nahin', 'nahin chahti', 'roka', 'pad gaya'],
 }
+# ── v2: Extended Constants ──────────────────────────────────────────────────
+# Hindi pronoun rules (mera/tera/uska) - context-dependent
+HI_PRONOUN_RULES = [
+    (r'\bmera lund\b', 'tera lund', 'pronoun: mera=own body, tera=addressing someone about their body'),
+    (r'\bmeri chut\b', 'teri chut', 'pronoun: meri→teri when addressing someone'),
+    (r'\bmeri gaand\b', 'teri gaand', 'pronoun: meri→teri when addressing someone'),
+    (r'\bmera gandh\b', 'tera gandh', 'pronoun: mera→teri when addressing someone'),
+]
+# Extended position markers
+POSITION_MARKERS.update({
+    'cowgirl': ['upar baith', 'ride', 'upar khadi', 'ghoom'],
+    'sideways': ['side mein', 'laut kar', 'ek taraf'],
+    'standing': ['khada', 'khadi', 'wall', 'deewar', 'khade khade'],
+    'shower': ['shower', 'bathroom', 'paani', 'neeche aa'],
+    'kitchen': ['kitchen', 'counter', 'chulha', 'gas'],
+})
+# Extended explicit terms by category
+EXPLICIT_BODY = {
+    'male': ['lund', 'cock', 'dick', 'lips', 'head', 'vein', 'hard', 'thick', 'bada', 'khada', 'numb', 'paseena'],
+    'female': ['chut', 'pussy', 'gaand', 'ass', 'boobs', 'chuche', 'nipple', 'gila', 'wet', 'gandi', 'chhed', 'hole'],
+    'fluids': ['paseena', 'sweat', 'cum', 'vehshi', 'garam', 'garam paseena', 'nectar', 'juice'],
+}
+# Sensory vocabulary for enrichment
+SENSORY_VOCAB = {
+    'smell': ['sweat', 'perfume', 'cooking oil', 'incense', 'rain on concrete', 'soap', 'skin', 'gandh', 'mehkh', 'khushbu'],
+    'taste': ['sweat', 'salt', 'sweet', 'bitter', 'metal', 'skin', 'lips', 'chai', 'paan'],
+    'touch': ['hot skin', 'cool air', 'rough', 'smooth', 'wet', 'dry', 'pressure', 'pain', 'pleasure', 'cotton', 'silk', 'concrete'],
+    'sound': ['breathing', 'heartbeat', 'moan', 'whisper', 'silence', 'fan', 'traffic', 'neighbors', 'pressure cooker', 'azaan', 'crickets'],
+    'sight': ['tube-light flicker', 'evening light through curtains', 'shadows', 'sweat on skin', 'tears', 'blush', 'darkness', 'clothes on floor'],
+}
+# Scene structure templates
+SCENE_STRUCTURES = {
+    'sex_scene': ['1. OPENING: Sensory grounding - where are we, first sensation', '2. APPROACH: How they get close - tension builds', '3. ENTRY: First contact - the stretch, the first thrust', '4. BUILD: Rhythm increases - dirty talk, power shifts', '5. CLIMAX: Peak - fragments, sensory overload, then silence', '6. AFTER: Quiet - small details, world re-enters, they have changed'],
+    'dialogue_scene': ['1. OPENING: Subtext setup - what is NOT said', '2. RISING: Tension through dialogue - power dynamics audible', '3. TURN: The shift - someone says the unsayable', '4. FALLOUT: What cannot be unsaid - action follows words'],
+    'discovery_scene': ['1. OPENING: Normal world - the calm before', '2. DISCOVERY: The moment everything changes', '3. DENIAL: Refusal to accept - internal conflict', '4. ACCEPTANCE: The new reality - what now?', '5. DECISION: What they do about it - the story moves forward'],
+}
+
 
 # Subtext patterns for dialogue
 SUBTEXT_PATTERNS = {
@@ -134,12 +171,20 @@ def _create_tables(conn):
         );
         CREATE TABLE IF NOT EXISTS characters (
             id TEXT PRIMARY KEY, series_id TEXT, name TEXT, created_at TEXT,
-            profile_json TEXT,
+            updated_at TEXT, profile_json TEXT,
             FOREIGN KEY (series_id) REFERENCES series_bibles(id)
         );
         CREATE TABLE IF NOT EXISTS chapter_outlines (
             id INTEGER PRIMARY KEY AUTOINCREMENT, series_id TEXT, story_file TEXT,
             chapter_num INTEGER, outline_json TEXT, created_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS world_state (
+            series_id TEXT PRIMARY KEY, current_chapter INTEGER DEFAULT 0,
+            current_scene INTEGER DEFAULT 0, total_words INTEGER DEFAULT 0,
+            timeline_json TEXT DEFAULT '[]', last_event TEXT,
+            updated_at TEXT, state_json TEXT DEFAULT '{}',
+            FOREIGN KEY (series_id) REFERENCES series_bibles(id)
         );
     """)
 
@@ -191,6 +236,10 @@ def get_bible_character_names(bible: dict) -> dict:
     return result
 
 
+def _now():
+    return datetime.now(timezone.utc).isoformat()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # MCP Server + Tool Registration
 # ─────────────────────────────────────────────────────────────────────────────
@@ -220,7 +269,7 @@ async def list_tools():
         ),
         Tool(
             name="brainstorm_narrative",
-            description="Generate high-concept narrative ideas with full structure: premise, character arcs, plot beats, unique angles, heat/tone calibration. Production-ready narrative blueprints — NOT placeholders.",
+            description="Generate high-concept narrative ideas with full structure: premise, character arcs, plot beats, unique angles, heat/tone calibration. Production-ready narrative blueprints - NOT placeholders.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -268,7 +317,7 @@ async def list_tools():
         ),
         Tool(
             name="write_scene",
-            description="Generate a complete scene with full sensory detail, dialogue, inner monologue, and power dynamics. Takes bible context, scene brief, heat level. The core creative engine — produces actual prose, not templates.",
+            description="Generate a complete scene with full sensory detail, dialogue, inner monologue, and power dynamics. Takes bible context, scene brief, heat level. The core creative engine - produces actual prose, not templates.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -430,7 +479,7 @@ async def list_tools():
         ),
         Tool(
             name="trope_innovate",
-            description="Generate novel trope combinations with intelligent fusion, inversion, and escalation — not random. DB-deduped.",
+            description="Generate novel trope combinations with intelligent fusion, inversion, and escalation - not random. DB-deduped.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -441,6 +490,26 @@ async def list_tools():
                 "required": ["seed_tropes"]
             }
         ),
+
+        # ── v2: World Engine ────────────────────────────────────────
+        Tool(name="update_world_state", description="Update world state: record events, advance timeline, update relationships. World remembers everything.",
+            inputSchema={"type":"object","properties":{"series_id":{"type":"string"},"event":{"type":"string","description":"What happened in this scene/chapter"},"chapter_num":{"type":"integer"},"scene_num":{"type":"integer"},"words_written":{"type":"integer"}},"required":["series_id","event"]}),
+        # ── v2: Character AI ────────────────────────────────────────
+        Tool(name="update_character", description="Update character after a scene: what they learned, how they changed, relationship shifts.",
+            inputSchema={"type":"object","properties":{"character_id":{"type":"string"},"event":{"type":"string"},"learned":{"type":"string"},"changed":{"type":"string"},"relationship_shift":{"type":"string"}},"required":["character_id","event"]}),
+        Tool(name="character_relationships", description="Track relationship: power dynamic, intimacy level, secrets, conflicts.",
+            inputSchema={"type":"object","properties":{"series_id":{"type":"string"},"char1":{"type":"string"},"char2":{"type":"string"},"dynamic":{"type":"string"},"intimacy":{"type":"integer"},"secrets":{"type":"array","items":{"type":"string"}},"conflicts":{"type":"array","items":{"type":"string"}}},"required":["series_id","char1","char2"]}),
+        # ── v2: Plot Engine ─────────────────────────────────────────
+        Tool(name="narrative_arc_check", description="Check story arc: tension progression, character growth, foreshadowing payoff, plot holes.",
+            inputSchema={"type":"object","properties":{"series_id":{"type":"string"},"story_file":{"type":"string"}},"required":["series_id"]}),
+        # ── v2: Scene Builder ───────────────────────────────────────
+        Tool(name="write_chapter", description="Full chapter from outline. Scene-by-scene prose blueprints with all context.",
+            inputSchema={"type":"object","properties":{"series_id":{"type":"string"},"chapter_num":{"type":"integer"},"chapter_goal":{"type":"string"},"num_scenes":{"type":"integer"},"heat_level":{"type":"integer"},"pov":{"type":"string","enum":["first","third_limited","voyeur"]},"word_target":{"type":"integer"}},"required":["chapter_num","chapter_goal"]}),
+        Tool(name="edit_prose", description="Line-level editing: tighten, expand, sensory-enrich, reshape.",
+            inputSchema={"type":"object","properties":{"text":{"type":"string"},"direction":{"type":"string"},"heat_level":{"type":"integer"},"preserve_voice":{"type":"boolean"}},"required":["text","direction"]}),
+        Tool(name="sensory_enrich", description="Add sensory depth to flat prose: smell, taste, touch, sound, sight.",
+            inputSchema={"type":"object","properties":{"text":{"type":"string"},"focus":{"type":"string","enum":["all","smell","taste","touch","sound","sight"]},"intensity":{"type":"string","enum":["subtle","moderate","intense"]}},"required":["text"]}),
+
         # ── Export ───────────────────────────────────────────────
         Tool(
             name="export_format",
@@ -479,6 +548,10 @@ async def call_tool(name: str, arguments: dict) -> list:
         "character_voice_check": handle_character_voice_check,
         "trope_innovate": handle_trope_innovate,
         "export_format": handle_export_format,
+        "update_world_state": h_update_world,
+        "update_character": h_update_char, "character_relationships": h_relationships,
+        "narrative_arc_check": h_arc_check,
+        "write_chapter": h_write_chapter, "edit_prose": h_edit, "sensory_enrich": h_sensory,
     }
     handler = handlers.get(name)
     if not handler:
@@ -554,7 +627,7 @@ async def handle_generate_bible(args: dict) -> dict:
             "next_steps": ["Fill in character names and details", "Use check_continuity before each chapter delivery"]}
 
 
-# ─── brainstorm_narrative (FIXED — no placeholders) ───────────────────────
+# ─── brainstorm_narrative (FIXED - no placeholders) ───────────────────────
 async def handle_brainstorm_narrative(args: dict) -> dict:
     genre = args["genre"]
     seed = args.get("seed_idea", "").strip()
@@ -562,48 +635,48 @@ async def handle_brainstorm_narrative(args: dict) -> dict:
     heat = args.get("heat_level", 0)
     culture = args.get("cultural_context", "Indian")
 
-    # Rich concept library — production-ready ideas
+    # Rich concept library - production-ready ideas
     INDIAN_EROTICA_CONCEPTS = [
         {
-            "premise": "A young married woman discovers her husband's best friend has been watching her through a hidden camera in their bedroom. Instead of confronting him, she starts performing — knowing he's watching — and a dangerous game of control begins.",
+            "premise": "A young married woman discovers her husband's best friend has been watching her through a hidden camera in their bedroom. Instead of confronting him, she starts performing - knowing he's watching - and a dangerous game of control begins.",
             "unique_angle": "The watched woman holds the real power. She's not a victim; she's a director who knows exactly who's in her audience.",
             "character_arcs": ["wife: passive → orchestrator", "watcher: dominant → exposed → addicted"],
             "structure": "escalation-chain", "tension_devices": ["voyeurism", "exhibitionism", "blackmail-as-foreplay"],
         },
         {
             "premise": "Two families share a thin-walled apartment in a Mumbai chawl. What starts as accidental overheard sounds becomes deliberate midnight performances, and both couples begin competing to outdo each other.",
-            "unique_angle": "Class tension meets sexual one-upmanship. The real conflict isn't the sex — it's who in this building holds social power and how sex rewrites that hierarchy.",
+            "unique_angle": "Class tension meets sexual one-upmanship. The real conflict isn't the sex - it's who in this building holds social power and how sex rewrites that hierarchy.",
             "character_arcs": ["wife_1: repressed → uninhibited", "husband_1: competitive → vulnerable", "wife_2: curious → obsessed"],
             "structure": "parallel-escalation", "tension_devices": ["competition", "exhibitionism", "class-warfare"],
         },
         {
-            "premise": "A shy college girl accidentally joins an anonymous online group where women share erotic writing about local men — and discovers her professor's name keeps appearing, written by someone who knows his private habits far too well.",
-            "unique_angle": "The investigation IS the arousal. She's not writing — she's hunting. And when she finds the other author, neither expected what happens.",
+            "premise": "A shy college girl accidentally joins an anonymous online group where women share erotic writing about local men - and discovers her professor's name keeps appearing, written by someone who knows his private habits far too well.",
+            "unique_angle": "The investigation IS the arousal. She's not writing - she's hunting. And when she finds the other author, neither expected what happens.",
             "character_arcs": ["student: innocent → author", "secret_author: hidden → revealed → collided"],
             "structure": "3-act", "tension_devices": ["discovery", "first_time", "forbidden_knowledge"],
         },
         {
-            "premise": "A man discovers his late mother's diary — explicit, passionate, furious. She had a secret life. The man tracks down the other person in those pages and discovers his mother was neither the saint nor the sinner he imagined.",
-            "unique_angle": "Desi mother's sexuality excavated through her own words. The son's grief, arousal, shame — all of it valid, all of it complicated.",
+            "premise": "A man discovers his late mother's diary - explicit, passionate, furious. She had a secret life. The man tracks down the other person in those pages and discovers his mother was neither the saint nor the sinner he imagined.",
+            "unique_angle": "Desi mother's sexuality excavated through her own words. The son's grief, arousal, shame - all of it valid, all of it complicated.",
             "character_arcs": ["son: monochrome-mother → full-human-mother", "diary-mother: dead → more alive than ever"],
             "structure": "revelation-chain", "tension_devices": ["forbidden_knowledge", "generational", "taboo"],
         },
         {
-            "premise": "A woman starts leaving handwritten erotic notes in library books. A different man finds each note. The notes reference private details of his life — things no stranger should know. He becomes obsessed with finding who's writing them.",
-            "unique_angle": "The notes aren't invitations — they're portraits. Each one captures him more accurately than anyone ever has. The hunt for the author is really a hunt to be truly seen.",
+            "premise": "A woman starts leaving handwritten erotic notes in library books. A different man finds each note. The notes reference private details of his life - things no stranger should know. He becomes obsessed with finding who's writing them.",
+            "unique_angle": "The notes aren't invitations - they're portraits. Each one captures him more accurately than anyone ever has. The hunt for the author is really a hunt to be truly seen.",
             "character_arcs": ["woman: invisible → omniscient narrator", "man: studied → seer → seen"],
             "structure": "escalation-chain", "tension_devices": ["discovery", "_secret_identity", "devotion"],
         },
     ]
     INDIAN_ROMANCE_CONCEPTS = [
         {
-            "premise": "An arranged marriage between two people who've been secretly following each other's anonymous erotic blogs for years — and don't realize they're about to meet in person.",
-            "unique_angle": "They already know each other's deepest selves. The wedding night isn't awkward — it's electric. But when the truth comes out, trust is rebuilt on entirely new terms.",
+            "premise": "An arranged marriage between two people who've been secretly following each other's anonymous erotic blogs for years - and don't realize they're about to meet in person.",
+            "unique_angle": "They already know each other's deepest selves. The wedding night isn't awkward - it's electric. But when the truth comes out, trust is rebuilt on entirely new terms.",
             "character_arcs": ["both: hidden → exposed → chosen"],
             "structure": "3-act", "tension_devices": ["secret_identity", "discovery", "forbidden_love"],
         },
         {
-            "premise": "A woman agrees to a marriage of convenience to help a friend avoid deportation. The contract says 'no feelings.' The contract was a lie — hers or his, even she's not sure anymore.",
+            "premise": "A woman agrees to a marriage of convenience to help a friend avoid deportation. The contract says 'no feelings.' The contract was a lie - hers or his, even she's not sure anymore.",
             "unique_angle": "Every intimate moment is 'just practice' or 'just physical' until the night neither of them can pretend anymore.",
             "character_arcs": ["woman: controlled → surrendered", "man: grateful → greedy-for-her"],
             "structure": "slow_burn", "tension_devices": ["proximity-denied", "forbidden_love"],
@@ -611,8 +684,8 @@ async def handle_brainstorm_narrative(args: dict) -> dict:
     ]
     GENERIC_CONCEPTS = [
         {
-            "premise": f"A {genre} story set in {culture}: {seed or 'two strangers whose secrets are mirrors of each other'}. What they hide from the world is exactly what draws them together — and what will eventually tear them apart.",
-            "unique_angle": "The genre is the vehicle — the real story is about two people who can only be honest in the dark.",
+            "premise": f"A {genre} story set in {culture}: {seed or 'two strangers whose secrets are mirrors of each other'}. What they hide from the world is exactly what draws them together - and what will eventually tear them apart.",
+            "unique_angle": "The genre is the vehicle - the real story is about two people who can only be honest in the dark.",
             "character_arcs": ["protagonist: hidden → exposed", "deuteragonist: hunter → caught"],
             "structure": "3-act", "tension_devices": ["discovery", "betrayal", "forbidden_love"],
         },
@@ -633,7 +706,7 @@ async def handle_brainstorm_narrative(args: dict) -> dict:
         base = pool[i % len(pool)]
         idea = {
             "id": f"idea_{i+1}",
-            "title": f"{genre.title()} — {culture.title()} Concept #{i+1}",
+            "title": f"{genre.title()} - {culture.title()} Concept #{i+1}",
             "premise": base["premise"],
             "unique_angle": base["unique_angle"],
             "character_arcs": base["character_arcs"],
@@ -679,14 +752,14 @@ async def handle_develop_character(args: dict) -> dict:
         trait_lower = seed_trait.lower()
         if "voyeur" in trait_lower or "watcher" in trait_lower:
             psychology = {
-                "desire": "To see without being seen — control through observation",
+                "desire": "To see without being seen - control through observation",
                 "fear": "Being watched himself, nakedness of *soul* not body",
                 "contradiction": "Demanding honesty in others while hiding everything about himself",
                 "sexual_identity": "Gets off on the power of witnessing, not necessarily the act",
             }
         elif "domme" in trait_lower or "dominant" in trait_lower:
             psychology = {
-                "desire": "To be obeyed — not feared, *obeyed* — there's a difference only she understands",
+                "desire": "To be obeyed - not feared, *obeyed* - there's a difference only she understands",
                 "fear": "Losing control of herself, the one person who could undo her",
                 "contradiction": "Needs surrender to feel powerful. Submission is her aphrodisiac, not dominance.",
                 "sexual_identity": "Power is foreplay. Giving someone the leash is the most intimate act she knows.",
@@ -694,15 +767,15 @@ async def handle_develop_character(args: dict) -> dict:
         elif "submissive" in trait_lower or "surrender" in trait_lower:
             psychology = {
                 "desire": "Someone strong enough to choose her surrender for her",
-                "fear": "Being left alone with her own freedom — responsibility is terrifying",
+                "fear": "Being left alone with her own freedom - responsibility is terrifying",
                 "contradiction": "Most powerful when appearing weakest. Her submission IS her choice, and that makes it terrifying.",
-                "sexual_identity": "Finds her voice through physical surrender — the body speaks what words can't.",
+                "sexual_identity": "Finds her voice through physical surrender - the body speaks what words can't.",
             }
         elif "reluctant" in trait_lower or "resistant" in trait_lower:
             psychology = {
-                "desire": "To want without guilt — the wanting *is* the sin she can't forgive",
+                "desire": "To want without guilt - the wanting *is* the sin she can't forgive",
                 "fear": "Enjoying it. Finding out she likes what she's supposed to hate.",
-                "contradiction": "Each resistance makes the surrender sweeter. She's not being overpowered — she's being *proven wrong* about herself.",
+                "contradiction": "Each resistance makes the surrender sweeter. She's not being overpowered - she's being *proven wrong* about herself.",
                 "sexual_identity": "Desire arrives dressed as guilt. She has to unlearn shame to feel pleasure.",
             }
         else:
@@ -714,7 +787,7 @@ async def handle_develop_character(args: dict) -> dict:
             }
     else:
         psychology = {
-            "desire": "To be truly known — not performed, *seen*",
+            "desire": "To be truly known - not performed, *seen*",
             "fear": "Being legible. Someone reading her/him completely.",
             "contradiction": "Pushes away what draws them closer",
             "sexual_identity": "Discovering what the body wants before the mind agrees",
@@ -781,31 +854,31 @@ async def handle_build_world(args: dict) -> dict:
     setting_lower = setting.lower()
     if "apartment" in setting_lower or "flat" in setting_lower:
         space_type = "apartment"
-        walls = "thin — neighbors hear everything"
+        walls = "thin - neighbors hear everything"
         privacy_level = "low"
         key_locations = ["bedroom", "kitchen", "bathroom", "balcony", "living room"]
         sound_profile = "TV noise, pressure cooker, traffic, neighbors' arguments"
     elif "haveli" in setting_lower or "mansion" in setting_lower or "bungalow" in setting_lower:
         space_type = "haveli"
-        walls = "thick stone — but servants' ears are everywhere"
+        walls = "thick stone - but servants' ears are everywhere"
         privacy_level = "medium"
         key_locations = ["main bedroom", "terrace", "garden", "servant quarters", "drawing room", "kitchen"]
         sound_profile = "cicadas, distant azaan, servants' footsteps, crickets"
     elif "hostel" in setting_lower or "dorm" in setting_lower:
         space_type = "hostel"
-        walls = "paper — zero privacy"
+        walls = "paper - zero privacy"
         privacy_level = "none"
         key_locations = ["shared room", "bathroom block", "rooftop", "common room", "corridor"]
         sound_profile = "snoring, whispered conversations, doors creaking, radios"
     elif "chawl" in setting_lower:
         space_type = "chawl"
-        walls = "cardboard — every sound travels"
+        walls = "cardboard - every sound travels"
         privacy_level = "none"
         key_locations = ["single room", "common toilet", "narrow passage", "rooftop", "water tap area"]
         sound_profile = "neighbors' sex, children crying, pressure cookers, TV serials, street vendors"
     elif "college" in setting_lower or "university" in setting_lower:
         space_type = "college"
-        walls = "varies — hostel thin, library silent, professor's office closed"
+        walls = "varies - hostel thin, library silent, professor's office closed"
         privacy_level = "variable"
         key_locations = ["lecture hall", "library corner", "hostel room", "professor's office", "campus garden", "canteen"]
         sound_profile = "bells, bicycle horns, whispered gossip, ceiling fans"
@@ -825,11 +898,11 @@ async def handle_build_world(args: dict) -> dict:
             "sound_profile": sound_profile,
             "smell_palette": ["cooking oil", "incense", "rain on concrete", "sweet", "soap"] if "indian" in culture.lower() else ["coffee", "books", "rain", "wood"],
             "light_quality": "Harsh tube-light and warm evening sun through curtains" if "indian" in culture.lower() else "Soft, diffused",
-            "temperature": "Hot — ceiling fans, sweat, the relief of shade" if "indian" in culture.lower() else "Moderate",
+            "temperature": "Hot - ceiling fans, sweat, the relief of shade" if "indian" in culture.lower() else "Moderate",
         },
         "social_rules": {
             "public_behavior": "Modest, family-first, reputation is currency",
-            "private_behavior": "Everything public forbids, private permits — the gap is where the story lives",
+            "private_behavior": "Everything public forbids, private permits - the gap is where the story lives",
             "sexual_norms": "Unspoken but rigid. The tension between what's done and what's admitted.",
             "taboos": ["public display", "cross-class desire", "older woman/younger man", "same-sex desire", "wife's pleasure prioritized"],
             "power_structures": ["age > youth", "men > women (publicly)", "money > respectability", "reputation > truth"],
@@ -842,16 +915,16 @@ async def handle_build_world(args: dict) -> dict:
             "sight": ["tube-light flicker", "evening light through curtains", "clothes drying on line", "rangoli", "steel utensils"],
         },
         "heat_specific": {
-            "privacy_risk": "High — discovery is a constant threat that amplifies arousal",
+            "privacy_risk": "High - discovery is a constant threat that amplifies arousal",
             "forbidden_spaces": ["terrace at night", "bathroom with thin walls", "car parked in dark", "empty classroom"],
-            "time_of_day_for_risk": "Afternoon — when the house should be empty but isn't",
-            "clothing_as_barrier": "Sari/salwar as both armor and tease — what's hidden is more erotic than what's shown",
-            "sound_danger": "Every sound could be discovery — silence becomes foreplay",
+            "time_of_day_for_risk": "Afternoon - when the house should be empty but isn't",
+            "clothing_as_barrier": "Sari/salwar as both armor and tease - what's hidden is more erotic than what's shown",
+            "sound_danger": "Every sound could be discovery - silence becomes foreplay",
         },
         "narrative_utility": {
             "best_for": ["voyeurism", "exhibitionism", "forbidden_love", "discovery", "power_exchange"],
             "tension_devices": ["thin walls", "unexpected visitors", "clothing malfunction", "caught-in-act"],
-            "mood": "Claustrophobic intimacy — the world presses in, making every touch more urgent",
+            "mood": "Claustrophobic intimacy - the world presses in, making every touch more urgent",
         },
     }
 
@@ -897,45 +970,45 @@ async def handle_write_scene(args: dict) -> dict:
     if pov == "first":
         pronoun_i = "main"
         pronoun_my = "meri" if (bible and any("female" in " ".join(c.get("voice_markers", [])).lower() for c in bible.get("characters", []) if c.get("name") in characters)) else "mera"
-        pov_note = "First person — intimate, immediate, sensory-first"
+        pov_note = "First person - intimate, immediate, sensory-first"
     elif pov == "voyeur":
-        pov_note = "Voyeuristic third — the reader watches through a keyhole, window, crack in the door. Distance creates desire."
+        pov_note = "Voyeuristic third - the reader watches through a keyhole, window, crack in the door. Distance creates desire."
         pronoun_i = "wo"
         pronoun_my = "uski"
     else:
-        pov_note = "Third limited — close to one character's experience"
+        pov_note = "Third limited - close to one character's experience"
         pronoun_i = "wo"
         pronoun_my = "uski"
 
     # Heat level prose guidelines
     heat_guidelines = {
         1: {
-            "approach": "Sensual — anticipation-driven, fade-to-black for explicit acts",
+            "approach": "Sensual - anticipation-driven, fade-to-black for explicit acts",
             "vocabulary": "Soft: warmth, pressure, breath, skin, curve, whisper",
             "what_to_show": "The moment before. The almost. The wanting.",
-            "what_to_hide": "Explicit acts — cut to black or fade out",
+            "what_to_hide": "Explicit acts - cut to black or fade out",
             "sentence_rhythm": "Longer, flowing sentences. Let the tension build slowly.",
         },
         2: {
-            "approach": "Erotic Romance — explicit sex serving character development",
+            "approach": "Erotic Romance - explicit sex serving character development",
             "vocabulary": "Direct: body parts named, actions described, sensations detailed",
-            "what_to_show": "The emotional arc within the physical act — what changes between them",
+            "what_to_show": "The emotional arc within the physical act - what changes between them",
             "what_to_hide": "Mechanical detail without emotional context",
             "sentence_rhythm": "Mix of long build-up and short, sharp action sentences.",
         },
         3: {
-            "approach": "Explicit Erotica — graphic, sensation-focused, power dynamics clear",
-            "vocabulary": "Raw: lund, chut, gaand, chod, chus — in English narration. Hinglish dialogue.",
-            "what_to_show": "Everything — position, movement, fluid, sound, smell, the exact moment of surrender",
-            "what_to_hide": "Nothing — but every detail must serve the power dynamic or emotional truth",
+            "approach": "Explicit Erotica - graphic, sensation-focused, power dynamics clear",
+            "vocabulary": "Raw: lund, chut, gaand, chod, chus - in English narration. Hinglish dialogue.",
+            "what_to_show": "Everything - position, movement, fluid, sound, smell, the exact moment of surrender",
+            "what_to_hide": "Nothing - but every detail must serve the power dynamic or emotional truth",
             "sentence_rhythm": "Staccato during action. Long, breathless sentences during build-up. Fragments during climax.",
         },
         4: {
-            "approach": "Literary Erotica — explicit but transcendent, philosophical, boundary-dissolving",
-            "vocabulary": "Poetic and raw combined — the body as landscape, sex as language",
-            "what_to_show": "The dissolution of self — where does one body end and another begin?",
-            "what_to_hide": "Cliché — find the image no one has used before",
-            "sentence_rhythm": "Varied — match rhythm to sensation. Short gasps. Long, winding thoughts. Silence.",
+            "approach": "Literary Erotica - explicit but transcendent, philosophical, boundary-dissolving",
+            "vocabulary": "Poetic and raw combined - the body as landscape, sex as language",
+            "what_to_show": "The dissolution of self - where does one body end and another begin?",
+            "what_to_hide": "Cliché - find the image no one has used before",
+            "sentence_rhythm": "Varied - match rhythm to sensation. Short gasps. Long, winding thoughts. Silence.",
         },
     }
     hg = heat_guidelines.get(heat_level, heat_guidelines[2])
@@ -943,28 +1016,28 @@ async def handle_write_scene(args: dict) -> dict:
     # Build the scene generation prompt/instruction
     scene_structure = {
         "opening": {
-            "goal": "Ground the reader in the immediate physical reality — where are we, what's the first sensation?",
+            "goal": "Ground the reader in the immediate physical reality - where are we, what's the first sensation?",
             "technique": "Start with a sensory detail, not explanation. The reader should feel the air before they understand the situation.",
             "avoid": "Starting with backstory, explanation, or waking up",
         },
         "rising_action": {
-            "goal": "Build tension through small escalations — each touch, each word, each glance raises the stakes",
+            "goal": "Build tension through small escalations - each touch, each word, each glance raises the stakes",
             "technique": "Use the space between actions. What they don't say is louder than what they do.",
             "avoid": "Rushing to the sex. The wanting IS the story.",
         },
         "key_moment": {
-            "goal": key_moment or "The moment everything shifts — a surrender, a revelation, a point of no return",
+            "goal": key_moment or "The moment everything shifts - a surrender, a revelation, a point of no return",
             "technique": "Slow down. This moment gets the most detail, the most sensation, the most interiority.",
-            "avoid": "Summarizing. This is the scene's reason for existing — earn it.",
+            "avoid": "Summarizing. This is the scene's reason for existing - earn it.",
         },
         "climax": {
-            "goal": "Physical and emotional peak — they arrive together or devastatingly apart",
+            "goal": "Physical and emotional peak - they arrive together or devastatingly apart",
             "technique": "Sentence fragments. Sensory overload. Then silence.",
             "avoid": "Cliché metaphors (waves, explosions, fireworks). Find the specific, true image.",
         },
         "aftermath": {
-            "goal": "The emotional landing — what's different now? What can't be unsaid?",
-            "technique": "Quiet. Small details. The world re-enters. But they've changed.",
+            "goal": "The emotional landing - what's different now? What cannot be unsaid?",
+            "technique": "Quiet. Small details. The world re-enters. But they have changed.",
             "avoid": "Explaining what it meant. Let the reader feel it.",
         },
     }
@@ -1010,7 +1083,7 @@ def _generate_scene_prose(scene_brief, characters, char_context, heat_level, pov
                           word_target, key_moment, heat_guidelines, scene_structure):
     """Generate actual scene prose based on all parameters."""
 
-    # This is the creative engine — it builds prose from the parameters
+    # This is the creative engine - it builds prose from the parameters
     # In a full implementation, this would call an LLM. Here we build
     # a detailed structural template that the LLM can fill.
 
@@ -1021,7 +1094,7 @@ def _generate_scene_prose(scene_brief, characters, char_context, heat_level, pov
     # Build prose sections
     sections = []
 
-    # Opening — sensory grounding
+    # Opening - sensory grounding
     sections.append(f"""# Scene: {scene_brief}
 
 {setting_line}{tone_line}POV: {pov}. Heat Level: {heat_level}/4.
@@ -1029,7 +1102,7 @@ def _generate_scene_prose(scene_brief, characters, char_context, heat_level, pov
 ---
 """)
 
-    # The actual scene content — structured as a writing blueprint
+    # The actual scene content - structured as a writing blueprint
     # that produces real prose when filled by the LLM
     sections.append(f"""
 ## Scene Blueprint
@@ -1040,12 +1113,12 @@ def _generate_scene_prose(scene_brief, characters, char_context, heat_level, pov
 
 **Emotional tone:** {emotional_tone}
 
-**Key moment:** {key_moment or "The shift — when desire becomes action"}
+**Key moment:** {key_moment or "The shift - when desire becomes action"}
 
 **Heat approach:** {heat_guidelines['approach']}
 
 ### Opening (Sensory Grounding)
-[Start with the first sensation — temperature, sound, light, smell.
+[Start with the first sensation - temperature, sound, light, smell.
 Ground the reader in the body before the mind.
 {heat_guidelines['what_to_show']}]
 
@@ -1059,10 +1132,10 @@ Use the space between actions.
 {heat_guidelines['what_to_show']}]
 
 ### Climax
-[{'Sentence fragments. Sensory overload. Then silence.' if heat_level >= 3 else 'Emotional peak — what changes between them.'}]
+[{'Sentence fragments. Sensory overload. Then silence.' if heat_level >= 3 else 'Emotional peak - what changes between them.'}]
 
 ### Aftermath
-[Quiet. Small details. The world re-enters. But they've changed.]
+[Quiet. Small details. The world re-enters. But they have changed.]
 
 ---
 **Vocabulary palette:** {heat_guidelines['vocabulary']}
@@ -1088,20 +1161,20 @@ async def handle_generate_dialogue(args: dict) -> dict:
         if heat_level >= 3:
             speech_pattern = "Direct, uses Hindi body terms naturally, short sentences when aroused"
             verbal_tics = ["haan", "nahi", "bas", "chhodo", "please"]
-            inner_voice = "Sensory-first — she thinks in sensations, then words"
+            inner_voice = "Sensory-first - she thinks in sensations, then words"
         else:
             speech_pattern = "Slightly formal English with Hinglish warmth, longer sentences"
             verbal_tics = ["haan ji", "theek hai", "dekho", "suno"]
-            inner_voice = "Thoughtful — she processes through words, then feelings"
+            inner_voice = "Thoughtful - she processes through words, then feelings"
     else:
         if heat_level >= 3:
             speech_pattern = "Commanding, short, uses 'tu' not 'tum' when intimate"
             verbal_tics = ["chup", "aa ja", "khol", "dekh"]
-            inner_voice = "Action-first — he thinks in what his body wants to do"
+            inner_voice = "Action-first - he thinks in what his body wants to do"
         else:
             speech_pattern = "Polite English with occasional Hinglish, respectful distance"
             verbal_tics = ["haan", "theek hai", "dekhte hain"]
-            inner_voice = "Analytical — he processes through logic, then feeling"
+            inner_voice = "Analytical - he processes through logic, then feeling"
 
     # Subtext mapping
     subtext_direction = ""
@@ -1177,16 +1250,16 @@ async def handle_generate_chapter_outline(args: dict) -> dict:
         else:
             progress = i / (num_scenes - 1)
             if progress < 0.3:
-                scene_goal = f"Setup — establish the world and desire"
+                scene_goal = f"Setup - establish the world and desire"
                 tension = 3 + int(progress * 10)
             elif progress < 0.6:
-                scene_goal = f"Complication — something shifts, tension rises"
+                scene_goal = f"Complication - something shifts, tension rises"
                 tension = 5 + int(progress * 8)
             elif progress < 0.85:
-                scene_goal = f"Crisis — the moment of maximum tension"
+                scene_goal = f"Crisis - the moment of maximum tension"
                 tension = 8
             else:
-                scene_goal = f"Resolution — emotional landing, new status quo"
+                scene_goal = f"Resolution - emotional landing, new status quo"
                 tension = 6
 
         scene = {
@@ -1242,30 +1315,30 @@ async def handle_rewrite_scene(args: dict) -> dict:
     dir_lower = direction.lower()
     transformations = []
     if "rawer" in dir_lower or "more physical" in dir_lower:
-        transformations.append("Increase explicit vocabulary — use Hindi body terms directly")
-        transformations.append("Add mechanical detail — position, movement, fluid")
-        transformations.append("Shorten sentences during action — staccato rhythm")
-        transformations.append("Remove euphemisms — call everything by its name")
+        transformations.append("Increase explicit vocabulary - use Hindi body terms directly")
+        transformations.append("Add mechanical detail - position, movement, fluid")
+        transformations.append("Shorten sentences during action - staccato rhythm")
+        transformations.append("Remove euphemisms - call everything by its name")
     if "slow" in dir_lower or "pacing" in dir_lower:
-        transformations.append("Extend the moments before — anticipation is 70% of arousal")
-        transformations.append("Add sensory detail between actions — what's heard, smelled, tasted")
+        transformations.append("Extend the moments before - anticipation is 70% of arousal")
+        transformations.append("Add sensory detail between actions - what's heard, smelled, tasted")
         transformations.append("Use longer, winding sentences during build-up")
     if "first person" in dir_lower or "first-person" in dir_lower:
-        transformations.append("Convert to first person — 'main' instead of character name")
-        transformations.append("Add internal monologue — what the narrator thinks but doesn't say")
-        transformations.append("Sensory-first — the body reports before the mind interprets")
+        transformations.append("Convert to first person - 'main' instead of character name")
+        transformations.append("Add internal monologue - what the narrator thinks but doesn't say")
+        transformations.append("Sensory-first - the body reports before the mind interprets")
     if "voyeur" in dir_lower or "distance" in dir_lower:
-        transformations.append("Pull the camera back — describe from outside the room")
-        transformations.append("Add observation details — what the watcher notices")
-        transformations.append("Create tension through what's hidden — the reader strains to see")
+        transformations.append("Pull the camera back - describe from outside the room")
+        transformations.append("Add observation details - what the watcher notices")
+        transformations.append("Create tension through what's hidden - the reader strains to see")
     if "power" in dir_lower or "dominance" in dir_lower or "submission" in dir_lower:
-        transformations.append("Clarify who controls each moment — power should be visible in every action")
-        transformations.append("Add power markers — who moves first, who speaks first, who looks away")
-        transformations.append("Show the shift — if power changes hands, mark the exact moment")
+        transformations.append("Clarify who controls each moment - power should be visible in every action")
+        transformations.append("Add power markers - who moves first, who speaks first, who looks away")
+        transformations.append("Show the shift - if power changes hands, mark the exact moment")
     if "tender" in dir_lower or "soft" in dir_lower or "emotional" in dir_lower:
-        transformations.append("Slow down — every touch is a conversation")
-        transformations.append("Add emotional interiority — what this means, not just what it feels like")
-        transformations.append("Use softer vocabulary — warmth, pressure, curve instead of explicit terms")
+        transformations.append("Slow down - every touch is a conversation")
+        transformations.append("Add emotional interiority - what this means, not just what it feels like")
+        transformations.append("Use softer vocabulary - warmth, pressure, curve instead of explicit terms")
     if "female" in dir_lower and "pov" in dir_lower:
         transformations.append("Female POV: sensory-first, body-aware, emotion-through-physical")
         transformations.append("Use female grammar: maine boli/dekhi/puchi/ki")
@@ -1286,10 +1359,10 @@ async def handle_rewrite_scene(args: dict) -> dict:
         "rewrite_instructions": {
             "approach": f"Rewrite the scene with these transformations applied. Keep the core events and dialogue, but change the prose to match the new direction.",
             "heat_guidelines": {
-                1: "Sensual — fade-to-black, anticipation-driven",
-                2: "Erotic Romance — explicit but character-focused",
-                3: "Explicit Erotica — graphic, raw, power-clear",
-                4: "Literary Erotica — transcendent, poetic, boundary-dissolving",
+                1: "Sensual - fade-to-black, anticipation-driven",
+                2: "Erotic Romance - explicit but character-focused",
+                3: "Explicit Erotica - graphic, raw, power-clear",
+                4: "Literary Erotica - transcendent, poetic, boundary-dissolving",
             },
             "key_principle": "Every sentence must serve either the physical reality OR the emotional truth. Ideally both. Cut anything that serves neither.",
         },
@@ -1453,11 +1526,11 @@ async def handle_analyze_power_dynamics(args: dict) -> dict:
     total_dominant = sum(c["dominant_moments"] for c in char_power.values())
     total_submissive = sum(c["submissive_moments"] for c in char_power.values())
     if total_dominant > total_submissive * 1.5:
-        overall = "Dominance-heavy — one character clearly controls"
+        overall = "Dominance-heavy - one character clearly controls"
     elif total_submissive > total_dominant * 1.5:
-        overall = "Submission-heavy — one character clearly yields"
+        overall = "Submission-heavy - one character clearly yields"
     elif total_dominant > 0 and total_submissive > 0:
-        overall = "Dynamic power exchange — control shifts between characters"
+        overall = "Dynamic power exchange - control shifts between characters"
     else:
         overall = "Power dynamics are subtle or not yet established"
 
@@ -1470,7 +1543,7 @@ async def handle_analyze_power_dynamics(args: dict) -> dict:
         "power_shifts": power_shifts,
         "overall_assessment": overall,
         "suggestions": [
-            "Ensure each power shift has a clear trigger — what causes the change?",
+            "Ensure each power shift has a clear trigger - what causes the change?",
             "The most powerful moment is when the submissive character chooses to submit",
             "Power dynamics should escalate across the story, not stay static",
         ],
@@ -1625,7 +1698,7 @@ async def handle_score_prose(args: dict) -> dict:
         hook_score += 1
     if len([l for l in lines[:5] if l.strip()]) >= 3:
         hook_score += 1
-    if any(w in opening.lower() for w in ['!', '?', '—', '...']):
+    if any(w in opening.lower() for w in ['!', '?', '-', '...']):
         hook_score += 1
     scores["hook"] = min(hook_score, 10)
     dialogue_lines = [l for l in lines if l.strip().startswith('"')]
@@ -1862,56 +1935,56 @@ async def handle_character_voice_check(args: dict) -> dict:
     return {"status": "success", "file": story_file, "characters": results}
 
 
-# ─── trope_innovate (FIXED — intelligent, not random) ─────────────────────
+# ─── trope_innovate (FIXED - intelligent, not random) ─────────────────────
 async def handle_trope_innovate(args: dict) -> dict:
     seed_tropes = args["seed_tropes"]
     genre = args.get("genre", "erotica")
     num = args.get("num_innovations", 5)
 
-    # Intelligent trope knowledge base — structured by genre and heat
+    # Intelligent trope knowledge base - structured by genre and heat
     TROPE_FUSION_LIBRARY = {
         "erotica": {
             "forbidden_love × power_exchange": {
                 "fusion": "Forbidden Love × Power Exchange",
-                "inversion": "The forbidden aspect isn't the obstacle — it's the point. They don't overcome the taboo; they weaponize it. Every 'wrong' thing they do together makes the rightness of it unbearable.",
+                "inversion": "The forbidden aspect isn't the obstacle - it's the point. They don't overcome the taboo; they weaponize it. Every 'wrong' thing they do together makes the rightness of it unbearable.",
                 "escalation": "Start with the power imbalance as protection ('I shouldn't, you're my student/boss/patient'). Midpoint: the power imbalance becomes the turn-on. Climax: the one who should have power surrenders it freely.",
-                "unique_angle": "What if the authority figure is the one being seduced — not through weakness, but through being *seen* for the first time? Their power was hiding their loneliness.",
+                "unique_angle": "What if the authority figure is the one being seduced - not through weakness, but through being *seen* for the first time? Their power was hiding their loneliness.",
             },
             "discovery × exhibitionism": {
                 "fusion": "Discovery × Exhibitionism",
-                "inversion": "The discovery isn't that they're being watched — it's that they *want* to be. The watching doesn't shame them; it completes them.",
+                "inversion": "The discovery isn't that they're being watched - it's that they *want* to be. The watching doesn't shame them; it completes them.",
                 "escalation": "Accidental exposure → deliberate exposure → desperate need for an audience. Each stage, the watcher becomes more important than the partner.",
-                "unique_angle": "The exhibitionist isn't performing for strangers — they're performing for one specific person who must never know how much they're wanted.",
+                "unique_angle": "The exhibitionist isn't performing for strangers - they're performing for one specific person who must never know how much they're wanted.",
             },
             "voyeurism × blackmail": {
                 "fusion": "Voyeurism × Blackmail",
-                "inversion": "The blackmailer doesn't want money — they want access. 'Let me watch' is the real demand. The money, the secrets — those are just the key to the door.",
+                "inversion": "The blackmailer doesn't want money - they want access. 'Let me watch' is the real demand. The money, the secrets - those are just the key to the door.",
                 "escalation": "Watching from outside → being invited to watch → being *directed* to watch → being made to participate.",
                 "unique_angle": "What if the person being watched hired the blackmailer themselves? The whole thing is a staged discovery so they can be 'forced' into something they already want.",
             },
             "first_time × corruption_arc": {
                 "fusion": "First Time × Corruption Arc",
-                "inversion": "The 'corruption' is a rescue. They're not being ruined — they're being *freed* from a life that was already killing them in slow motion.",
+                "inversion": "The 'corruption' is a rescue. They're not being ruined - they're being *freed* from a life that was already killing them in slow motion.",
                 "escalation": "Innocence → curiosity → first transgression → addiction to transgression → the 'sinful' life feels more honest than the 'pure' one ever did.",
-                "unique_angle": "The corrupter gets corrupted too — by the realization that they're not taking something, they're giving something the other person needed all along.",
+                "unique_angle": "The corrupter gets corrupted too - by the realization that they're not taking something, they're giving something the other person needed all along.",
             },
             "joint_family × secret_identity": {
                 "fusion": "Joint Family × Secret Identity",
-                "inversion": "The family knows. They've always known. The 'secret' is a fiction everyone maintains because the alternative — acknowledging it — would break the family.",
+                "inversion": "The family knows. They've always known. The 'secret' is a fiction everyone maintains because the alternative - acknowledging it - would break the family.",
                 "escalation": "Secret → almost caught → family pretends not to know → someone breaks the silence → the family's silence was the real secret.",
-                "unique_angle": "In a joint family, everyone shares walls and secrets. The most erotic thing isn't the sex — it's the collective agreement to pretend it isn't happening.",
+                "unique_angle": "In a joint family, everyone shares walls and secrets. The most erotic thing isn't the sex - it's the collective agreement to pretend it isn't happening.",
             },
         },
         "romance": {
             "arranged_marriage × slow_burn": {
                 "fusion": "Arranged Marriage × Slow Burn",
-                "inversion": "They're already married. The 'slow burn' isn't will-they-won't-they — it's two people who legally belong to each other learning whether they actually *fit*.",
+                "inversion": "They're already married. The 'slow burn' isn't will-they-won't-they - it's two people who legally belong to each other learning whether they actually *fit*.",
                 "escalation": "Polite distance → small kindnesses → one moment of real vulnerability → retreat → the next vulnerability goes deeper → neither can pretend anymore.",
                 "unique_angle": "The marriage certificate is the least binding thing about them. What binds them is the one secret they share that no one else in the family knows.",
             },
             "enemies_to_lovers × class_warfare": {
                 "fusion": "Enemies to Lovers × Class Warfare",
-                "inversion": "They're not enemies because of class — they're enemies because the attraction is real and the class difference makes it *dangerous*. Hatred is easier than wanting someone you can't have.",
+                "inversion": "They're not enemies because of class - they're enemies because the attraction is real and the class difference makes it *dangerous*. Hatred is easier than wanting someone you can't have.",
                 "escalation": "Public hostility → private moments of unexpected gentleness → one act of real kindness that can't be taken back → the war continues but now they're fighting on the same side.",
                 "unique_angle": "What if the one with less power is actually the one with more courage? Class buys comfort, not bravery.",
             },
@@ -1919,7 +1992,7 @@ async def handle_trope_innovate(args: dict) -> dict:
         "thriller": {
             "betrayal × seduction": {
                 "fusion": "Betrayal × Seduction",
-                "inversion": "The seduction IS the betrayal — but the betrayer falls too. They set a trap and walked into it themselves.",
+                "inversion": "The seduction IS the betrayal - but the betrayer falls too. They set a trap and walked into it themselves.",
                 "escalation": "Target acquired → intimacy develops → target activates → seducer is compromised → now they're both trapped.",
                 "unique_angle": "Two spies seduce each other knowing the other is a spy. The sex is real. The mission is real. Neither can tell which is which anymore.",
             },
@@ -1981,7 +2054,7 @@ async def handle_trope_innovate(args: dict) -> dict:
         existing.add(combo_key)
         innovations.append({
             "fusion": combo_key,
-            "inversion": f"What if {combo[0]} is reversed — the one who should resist is the one who initiates?",
+            "inversion": f"What if {combo[0]} is reversed - the one who should resist is the one who initiates?",
             "escalation": f"Start with {combo[1]}, escalate to {combo[0]} by midpoint, climax with {combo[2]}",
             "unique_angle": f"Never done: {combo[0]} + {combo[1]} in {genre} from the perspective of the one who holds power but doesn't know it",
         })
@@ -2103,6 +2176,141 @@ async def handle_export_format(args: dict) -> dict:
 # ═════════════════════════════════════════════════════════════════════════════
 # Main
 # ═════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════
+# v2 HANDLERS - World Engine, Character AI, Plot Engine, Scene Builder
+# ═════════════════════════════════════════════════════════════════════════════
+
+async def h_update_world(args):
+    sid = args["series_id"]; event = args["event"]
+    cn = args.get("chapter_num", 0); sn = args.get("scene_num", 0); ww = args.get("words_written", 0)
+    with db() as conn:
+        row = conn.execute("SELECT state_json FROM world_state WHERE series_id = ?", (sid,)).fetchone()
+        ws = json.loads(row[0]) if row and row[0] else {"timeline": [], "events": [], "relationships": {}}
+    ws["timeline"].append({"chapter": cn, "scene": sn, "event": event, "timestamp": _now()})
+    ws["events"].append(event)
+    if cn > ws.get("current_chapter", 0): ws["current_chapter"] = cn
+    if sn > ws.get("current_scene", 0): ws["current_scene"] = sn
+    ws["total_words"] = ws.get("total_words", 0) + ww
+    with db() as conn:
+        conn.execute("INSERT OR REPLACE INTO world_state (series_id, state_json, updated_at) VALUES (?,?,?)",
+            (sid, json.dumps(ws, ensure_ascii=False), _now()))
+    return {"status": "success", "event": event, "total_events": len(ws["events"]), "chapter": ws["current_chapter"]}
+
+async def h_update_char(args):
+    cid = args["character_id"]; event = args["event"]
+    learned = args.get("learned", ""); changed = args.get("changed", ""); rel = args.get("relationship_shift", "")
+    now = _now()
+    with db() as conn:
+        row = conn.execute("SELECT profile_json FROM characters WHERE id = ?", (cid,)).fetchone()
+        if not row: return {"error": f"Character {cid} not found"}
+        prof = json.loads(row[0])
+        prof.setdefault("history", []).append({"event": event, "learned": learned, "changed": changed, "timestamp": now})
+        if learned: prof.setdefault("arc", {})["learns"] = learned
+        if changed: prof.setdefault("psychology", {})["contradiction"] = changed
+        if rel: prof.setdefault("relationships", {})[rel] = prof["relationships"].get(rel, []) + [event]
+        conn.execute("UPDATE characters SET profile_json = ? WHERE id = ?",
+            (json.dumps(prof, ensure_ascii=False), cid))
+    return {"status": "success", "character": prof["name"], "history_len": len(prof.get("history", []))}
+
+async def h_relationships(args):
+    sid = args["series_id"]; c1 = args["char1"]; c2 = args["char2"]
+    dynamic = args.get("dynamic", ""); intimacy = args.get("intimacy", 0)
+    secrets = args.get("secrets", []); conflicts = args.get("conflicts", [])
+    with db() as conn:
+        row = conn.execute("SELECT state_json FROM world_state WHERE series_id = ?", (sid,)).fetchone()
+        ws = json.loads(row[0]) if row and row[0] else {"relationships": {}}
+    ws.setdefault("relationships", {})[f"{c1}|{c2}"] = {"dynamic": dynamic, "intimacy": intimacy, "secrets": secrets, "conflicts": conflicts}
+    with db() as conn:
+        conn.execute("UPDATE world_state SET state_json = ? WHERE series_id = ?", (json.dumps(ws, ensure_ascii=False), sid))
+    return {"status": "success", "relationship": f"{c1} ↔ {c2}", "dynamic": dynamic}
+
+async def h_arc_check(args):
+    sid = args["series_id"]; f = args.get("story_file", "")
+    issues = []; suggestions = []
+    with db() as conn:
+        row = conn.execute("SELECT state_json FROM world_state WHERE series_id = ?", (sid,)).fetchone()
+        ws = json.loads(row[0]) if row and row[0] else {}
+    if f and os.path.exists(f):
+        with open(f, "r", encoding="utf-8") as fh: lines = fh.read().split("\n")
+        scenes = []; cur = {"lines": []}
+        for line in lines:
+            if line.strip().startswith("#"):
+                if cur["lines"]: scenes.append(cur)
+                cur = {"lines": []}
+            elif line.strip(): cur["lines"].append(line.strip())
+        if cur["lines"]: scenes.append(cur)
+        if len(scenes) >= 2:
+            tensions = []
+            for sc in scenes:
+                t = sum(2 for l in sc["lines"] if any(w in l.lower() for w in ['!', 'scream', 'aaah', 'tez', 'jor']))
+                tensions.append(min(t, 10))
+            if tensions[-1] < tensions[len(tensions)//2]:
+                issues.append("Tension doesn't rise toward climax")
+                suggestions.append("Add more intense beats in the final third")
+    if ws.get("events"):
+        suggestions.append(f"Recent events to reference: {ws['events'][-3:]}")
+    return {"status": "success", "issues": issues, "suggestions": suggestions, "world_events": len(ws.get("events", []))}
+
+async def h_write_chapter(args):
+    sid = args.get("series_id", ""); cn = args["chapter_num"]; cg = args["chapter_goal"]
+    ns = args.get("num_scenes", 4); hl = args.get("heat_level", 2); pov = args.get("pov", "third_limited")
+    wt = args.get("word_target", 3000); ps = wt // max(ns, 1)
+    bible = load_bible(sid) if sid else None
+    ws = None
+    if sid:
+        with db() as conn:
+            row = conn.execute("SELECT state_json FROM world_state WHERE series_id = ?", (sid,)).fetchone()
+            ws = json.loads(row[0]) if row and row[0] else None
+    ch = [c.get("name", f"Char{i+1}") for i, c in enumerate(bible.get("characters", []))] if bible else []
+    scenes = []
+    for i in range(ns):
+        p = i / max(ns - 1, 1)
+        if p < 0.3: g, t = "Setup", 3 + int(p * 10)
+        elif p < 0.6: g, t = "Complication", 5 + int(p * 8)
+        elif p < 0.85: g, t = "Crisis", 8
+        else: g, t = "Resolution", 6
+        ht = min(hl, 1) if i == 0 else (hl if i >= ns // 2 else max(1, hl - 1))
+        bp = await handle_write_scene({"series_id": sid, "scene_brief": f"Ch{cn} Sc{i+1}: {g} - {cg}",
+            "characters": ch[:2] if ch else [], "heat_level": ht, "pov": pov, "word_count_target": ps})
+        scenes.append({"scene": i+1, "goal": g, "tension": t, "heat": ht, "words": ps, "blueprint": bp.get("scene", "")})
+    cb = f"# CHAPTER {cn}\n## {cg}\n{ns} scenes | {wt}w | {pov} | Heat {hl}/4\n\n"
+    for s in scenes:
+        cb += f"\n---\n# Scene {s['scene']}: {s['goal']}\nTension {s['tension']}/10 | Heat {s['heat']}/4 | {s['words']}w\n\n{s['blueprint']}\n"
+    return {"status": "success", "chapter": cn, "word_target": wt,
+        "tension_arc": [s["tension"] for s in scenes], "heat_arc": [s["heat"] for s in scenes],
+        "chapter_blueprint": cb, "scenes": scenes}
+
+async def h_edit(args):
+    text = args["text"]; dire = args["direction"]; hl = args.get("heat_level", 0)
+    edits = []; dl = dire.lower()
+    if "tighten" in dl: edits += ["Remove filler: very, really, just", "Cut redundant adjectives", "Replace 'was verb-ing' with direct verb", "Remove filter words (felt, saw, heard)"]
+    if "sensory" in dl: edits += ["Add smell - most evocative, most missing", "Add touch - temperature, texture, pressure", "Add sound - ambient, silence, breathing", "Replace visual-only with multi-sensory"]
+    if "rawer" in dl: edits += ["Replace euphemisms with direct language", "Add body-part specificity", "Shorten sentences during action"]
+    if "slow" in dl: edits += ["Extend moments before action", "Add sensory detail between actions"]
+    if "subtext" in dl: edits += ["What's NOT said is louder", "Add pauses, hesitations", "Body language contradicts dialogue"]
+    if not edits: edits.append(f"Apply: {dire}")
+    return {"status": "success", "original_words": len(text.split()), "direction": dire, "edits": edits, "original_text": text}
+
+async def h_sensory(args):
+    text = args["text"]; focus = args.get("focus", "all"); intensity = args.get("intensity", "moderate")
+    suggestions = []
+    if focus in ("all", "smell"):
+        suggestions += ["SMELL: What does the air hold? " + ", ".join(SENSORY_VOCAB["smell"][:5]), "Smell is the most evocative sense - add at least one per scene"]
+    if focus in ("all", "touch"):
+        suggestions += ["TOUCH: " + ", ".join(SENSORY_VOCAB["touch"][:5]), "Touch is the body's language - what does the skin report?"]
+    if focus in ("all", "sound"):
+        suggestions += ["SOUND: " + ", ".join(SENSORY_VOCAB["sound"][:5]), "Ambient noise creates intimacy - or its absence does"]
+    if focus in ("all", "taste"):
+        suggestions += ["TASTE: " + ", ".join(SENSORY_VOCAB["taste"][:5])]
+    if focus in ("all", "sight"):
+        suggestions += ["SIGHT: " + ", ".join(SENSORY_VOCAB["sight"][:5]), "Light quality sets mood - harsh tube-light vs warm evening sun"]
+    if intensity == "intense":
+        suggestions.append("INTENSE: 2+ sensory details per paragraph. Reader should FEEL it.")
+    elif intensity == "subtle":
+        suggestions.append("SUBTLE: One precise sensory detail per paragraph. Let imagination fill the rest.")
+    return {"status": "success", "focus": focus, "intensity": intensity, "suggestions": suggestions, "original_text": text}
+
+
 async def main():
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())
