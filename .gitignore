@@ -1,56 +1,45 @@
-# Dependencies
-node_modules/
+```
+# Python
 __pycache__/
 *.pyc
 *.pyo
-.venv/
+*.pyd
+.Python
+env/
 venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+htmlcov/
+.coverage.*
+.nox/
+.pytest_cache/
+.mypy_cache/
+.hypothesis/
 
-# OWL runtime data (personal, not source)
-*.db
-*.db-shm
-*.db-wal
-.owl-memory/
-owl_research_history.json
-.owl_context.md
-
-# Test files
-test_*.js
-test_*.py
-
-# Old versions (kept only v5 in source)
-owl_memory_v[0-4]*.js
-owl_memory_v3*
-
-# Build/patch/dev scripts
-build_*.js
-patch_*.js
-optimize.js
-audit_*.js
-bootstrap_*.js
-go.py
-msg.txt
-nul
-
-# Internal dev docs
-INNOVATION_PLAN.md
-NEUROMORPHIC_SUBSTRATE.md
-OWL_V4_COMPARISON.md
-
-# OS/editor
-.DS_Store
-Thumbs.db
-.idea/
-.vscode/
-*.swp
+# Environment
+.env
+.env.local
+.env.*
 
 # Logs
 *.log
-logs/
 
-# Temp
+# Coverage
+.coverage
+htmlcov/
+.coverage.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 *.tmp
-*.temp
-.owl-temp/
-*.pyc
-Dockerfile
+
+# OS
+.DS_Store
+Thumbs.db
+```
